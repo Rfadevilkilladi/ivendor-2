@@ -1,0 +1,39 @@
+{
+  "name": "RewardRedemption",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "reward_type": {
+      "type": "string",
+      "enum": [
+        "cafeteria_credit",
+        "bookstore_voucher",
+        "cash",
+        "project_discount",
+        "printing_credit"
+      ]
+    },
+    "points_spent": {
+      "type": "number"
+    },
+    "value": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "redeemed"
+      ],
+      "default": "pending"
+    }
+  },
+  "required": [
+    "user_email",
+    "reward_type",
+    "points_spent"
+  ]
+}

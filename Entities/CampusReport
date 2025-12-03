@@ -1,0 +1,58 @@
+{
+  "name": "CampusReport",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "cleanliness",
+        "maintenance",
+        "emergency",
+        "suggestion"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "in_progress",
+        "resolved"
+      ],
+      "default": "pending"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "urgent"
+      ],
+      "default": "medium"
+    },
+    "reporter_email": {
+      "type": "string"
+    },
+    "points_awarded": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "location"
+  ]
+}

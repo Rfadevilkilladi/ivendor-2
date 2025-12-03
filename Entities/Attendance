@@ -1,0 +1,60 @@
+{
+  "name": "Attendance",
+  "type": "object",
+  "properties": {
+    "student_id": {
+      "type": "string",
+      "description": "Student ID"
+    },
+    "student_email": {
+      "type": "string",
+      "description": "Student email"
+    },
+    "student_name": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Attendance date"
+    },
+    "check_in_time": {
+      "type": "string",
+      "description": "Check-in timestamp"
+    },
+    "check_out_time": {
+      "type": "string",
+      "description": "Check-out timestamp"
+    },
+    "location": {
+      "type": "string",
+      "description": "Kiosk location"
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "rfid",
+        "manual",
+        "facial"
+      ],
+      "default": "manual"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "present",
+        "late",
+        "absent"
+      ],
+      "default": "present"
+    },
+    "points_awarded": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "student_email",
+    "date"
+  ]
+}

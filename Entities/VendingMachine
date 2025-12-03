@@ -1,0 +1,43 @@
+{
+  "name": "VendingMachine",
+  "type": "object",
+  "properties": {
+    "location": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "maintenance",
+        "full",
+        "offline"
+      ],
+      "default": "active"
+    },
+    "fill_level": {
+      "type": "number",
+      "default": 0,
+      "description": "Fill percentage 0-100"
+    },
+    "last_emptied": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_items_collected": {
+      "type": "number",
+      "default": 0
+    },
+    "vent_status": {
+      "type": "string",
+      "enum": [
+        "closed",
+        "open"
+      ],
+      "default": "closed"
+    }
+  },
+  "required": [
+    "location"
+  ]
+}

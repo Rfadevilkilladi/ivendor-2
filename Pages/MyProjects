@@ -1,0 +1,401 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  FolderKanban,
+  Plus,
+  Clock,
+  CheckCircle2,
+  Circle,
+  ArrowRight,
+  Loader2,
+  MoreVertical,
+  Trash2,
+  Edit2,
+  Coins,
+  IndianRupee,
+  Upload,
+  FileCheck,
+  AlertCircle
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import GlassCard from "@/components/ui/GlassCard";
+
+const POINTS_CONVERSION_RATE = 0.75; // 75% converts to points
+
+export default function MyProjects() {
+  const [user, setUser] = useState(null);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [uploadDialog, setUploadDialog] = useState(false);
+  const [selectedMilestone, setSelectedMilestone] = useState(null);
+  const [proofUrl, setProofUrl] = useState("");
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: projects = [], isLoading } = useQuery({
+    queryKey: ["my-projects", user?.email],
+    queryFn: () => base44.entities.Project.filter({ 
+      is_template: false 
+    }),
+    enabled: !!user?.email,
+  });
+
+  const updateProjectMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Project.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-projects"] });
+    },
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: (id) => base44.entities.Project.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-projects"] });
+      setSelectedProject(null);
+    },
+  });
+
+  const uploadProof = async () => {
+    if (!selectedProject || selectedMilestone === null || !proofUrl) return;
+
+    const updatedMilestones = [...(selectedProject.milestones || [])];
+    updatedMilestones[selectedMilestone].proof_url = proofUrl;
+    updatedMilestones[selectedMilestone].proof_status = "pending";
+
+    await updateProjectMutation.mutateAsync({
+      id: selectedProject.id,
+      data: { 
+        milestones: updatedMilestones,
+        refund_status: "stage1_pending"
+      }
+    });
+
+    setUploadDialog(false);
+    setProofUrl("");
+    setSelectedMilestone(null);
+  };
+
+  const statusColors = {
+    idea: "bg-slate-100 text-slate-700",
+    in_progress: "bg-blue-100 text-blue-700",
+    review: "bg-amber-100 text-amber-700",
+    completed: "bg-emerald-100 text-emerald-700"
+  };
+
+  const proofStatusColors = {
+    pending: "bg-amber-100 text-amber-700",
+    approved: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-red-100 text-red-700"
+  };
+
+  const departmentColors = {
+    Mechanical: "from-orange-500 to-red-500",
+    Civil: "from-amber-500 to-yellow-500",
+    Electrical: "from-blue-500 to-cyan-500",
+    "Computer Science": "from-purple-500 to-indigo-500",
+    Electronics: "from-emerald-500 to-teal-500"
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+              <FolderKanban className="h-5 w-5 text-white" />
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">My Projects</h1>
+          </div>
+          <p className="text-slate-500">Track progress, upload proofs, and earn refunds</p>
+        </div>
+        <Link to={createPageUrl("IdeaMachine")}>
+          <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30">
+            <Plus className="h-4 w-4 mr-2" />
+            New Project
+          </Button>
+        </Link>
+      </div>
+
+      {/* Projects Grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+        </div>
+      ) : projects.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <FolderKanban className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900 mb-2">No Projects Yet</h3>
+          <p className="text-slate-500 mb-6">Start your innovation journey by picking an idea</p>
+          <Link to={createPageUrl("IdeaMachine")}>
+            <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white">
+              Browse Ideas
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          </Link>
+        </GlassCard>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-6">
+          <AnimatePresence mode="popLayout">
+            {projects.map((project, idx) => (
+              <motion.div
+                key={project.id}
+                layout
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ delay: idx * 0.1 }}
+              >
+                <GlassCard className="p-6 h-full">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className={`h-12 w-12 rounded-xl bg-gradient-to-br ${departmentColors[project.department] || "from-slate-500 to-slate-600"} flex items-center justify-center`}>
+                      <FolderKanban className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className={statusColors[project.status]}>
+                        {project.status?.replace("_", " ")}
+                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setSelectedProject(project)}>
+                            <Edit2 className="h-4 w-4 mr-2" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-red-600"
+                            onClick={() => deleteProjectMutation.mutate(project.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+
+                  <h3 className="font-semibold text-lg text-slate-900 mb-1">{project.title}</h3>
+                  <p className="text-sm text-slate-500 mb-4">{project.department}</p>
+
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-sm mb-2">
+                      <span className="text-slate-500">Progress</span>
+                      <span className="font-medium text-slate-900">{project.progress || 0}%</span>
+                    </div>
+                    <Progress value={project.progress || 0} className="h-2" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="p-3 rounded-lg bg-slate-50">
+                      <div className="flex items-center gap-1.5 text-slate-500 text-xs mb-1">
+                        <IndianRupee className="h-3 w-3" />
+                        <span>Fee Paid</span>
+                      </div>
+                      <p className="font-semibold text-slate-900">₹{project.initial_fee_paid || 0}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-emerald-50">
+                      <div className="flex items-center gap-1.5 text-emerald-600 text-xs mb-1">
+                        <Coins className="h-3 w-3" />
+                        <span>Refund Earned</span>
+                      </div>
+                      <p className="font-semibold text-emerald-700">₹{project.refund_earned || 0}</p>
+                    </div>
+                  </div>
+
+                  {project.refund_status && project.refund_status !== "none" && (
+                    <div className="p-2 rounded-lg bg-amber-50 border border-amber-100 mb-4">
+                      <div className="flex items-center gap-2 text-sm text-amber-700">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>Refund {project.refund_status.replace("_", " ")}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    onClick={() => setSelectedProject(project)}
+                  >
+                    View Milestones & Upload Proof
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Project Detail Dialog */}
+      <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          {selectedProject && (
+            <>
+              <DialogHeader>
+                <div className={`h-14 w-14 rounded-xl bg-gradient-to-br ${departmentColors[selectedProject.department] || "from-slate-500 to-slate-600"} flex items-center justify-center mb-3`}>
+                  <FolderKanban className="h-7 w-7 text-white" />
+                </div>
+                <DialogTitle className="text-xl">{selectedProject.title}</DialogTitle>
+                <p className="text-slate-500">{selectedProject.description}</p>
+              </DialogHeader>
+
+              <div className="space-y-6 mt-4">
+                <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-emerald-700">Refund Progress</span>
+                    <span className="font-bold text-emerald-700">
+                      ₹{selectedProject.refund_earned || 0} / ₹{selectedProject.initial_fee_paid || 50}
+                    </span>
+                  </div>
+                  <Progress 
+                    value={((selectedProject.refund_earned || 0) / (selectedProject.initial_fee_paid || 50)) * 100} 
+                    className="h-2 bg-emerald-100"
+                  />
+                  <p className="text-xs text-emerald-600 mt-2">
+                    Points earned on completion: {Math.round((selectedProject.initial_fee_paid || 50) * POINTS_CONVERSION_RATE)} pts
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-slate-900 mb-3">Milestones & Proofs</h4>
+                  <div className="space-y-3">
+                    {selectedProject.milestones?.map((milestone, idx) => (
+                      <div 
+                        key={idx}
+                        className={`p-4 rounded-xl border transition-all ${
+                          milestone.completed 
+                            ? "bg-emerald-50 border-emerald-200" 
+                            : "bg-white border-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5">
+                            {milestone.completed ? (
+                              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                            ) : (
+                              <Circle className="h-5 w-5 text-slate-300" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className={`font-medium ${milestone.completed ? "text-emerald-700" : "text-slate-900"}`}>
+                              {milestone.title}
+                            </p>
+                            <p className="text-sm text-slate-500 mt-0.5">
+                              Refund: ₹{milestone.refund_amount}
+                            </p>
+                            
+                            {/* Proof Status */}
+                            {milestone.proof_url ? (
+                              <div className="flex items-center gap-2 mt-2">
+                                <Badge className={proofStatusColors[milestone.proof_status] || "bg-slate-100"}>
+                                  Proof: {milestone.proof_status}
+                                </Badge>
+                                <a href={milestone.proof_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                                  View Proof
+                                </a>
+                              </div>
+                            ) : !milestone.completed && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-2"
+                                onClick={() => {
+                                  setSelectedMilestone(idx);
+                                  setUploadDialog(true);
+                                }}
+                              >
+                                <Upload className="h-3 w-3 mr-1" />
+                                Upload Proof
+                              </Button>
+                            )}
+                          </div>
+                          {milestone.completed && (
+                            <Badge className="bg-emerald-100 text-emerald-700">
+                              +₹{milestone.refund_amount}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
+                  <h4 className="font-semibold text-amber-900 mb-2">How Refunds Work</h4>
+                  <ol className="text-sm text-amber-700 space-y-1 list-decimal list-inside">
+                    <li>Upload proof for each milestone</li>
+                    <li>Admin reviews and approves (Stage 1-3)</li>
+                    <li>Refund credited after final approval</li>
+                    <li>{POINTS_CONVERSION_RATE * 100}% converts to loyalty points</li>
+                  </ol>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Proof Dialog */}
+      <Dialog open={uploadDialog} onOpenChange={setUploadDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Upload Proof</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label>Proof URL (Image/Document Link)</Label>
+              <Input
+                value={proofUrl}
+                onChange={(e) => setProofUrl(e.target.value)}
+                placeholder="https://..."
+                className="mt-1"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Upload your proof to Google Drive/Dropbox and paste the shareable link
+              </p>
+            </div>
+            <Button
+              onClick={uploadProof}
+              disabled={!proofUrl || updateProjectMutation.isPending}
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+            >
+              {updateProjectMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileCheck className="h-4 w-4 mr-2" />
+              )}
+              Submit for Review
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

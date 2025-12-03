@@ -1,0 +1,71 @@
+{
+  "name": "MentorBooking",
+  "type": "object",
+  "properties": {
+    "student_email": {
+      "type": "string"
+    },
+    "student_name": {
+      "type": "string"
+    },
+    "mentor_id": {
+      "type": "string"
+    },
+    "mentor_email": {
+      "type": "string"
+    },
+    "mentor_name": {
+      "type": "string"
+    },
+    "project_title": {
+      "type": "string"
+    },
+    "session_type": {
+      "type": "string",
+      "enum": [
+        "one_time",
+        "weekly",
+        "monthly"
+      ]
+    },
+    "amount": {
+      "type": "number",
+      "description": "Amount in INR"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "paid",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "payment_reference": {
+      "type": "string"
+    },
+    "booking_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "completed",
+        "cancelled"
+      ],
+      "default": "pending"
+    },
+    "scheduled_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "student_email",
+    "mentor_id",
+    "session_type",
+    "amount"
+  ]
+}

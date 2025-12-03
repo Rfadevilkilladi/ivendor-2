@@ -1,0 +1,374 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Users,
+  Search,
+  Star,
+  Briefcase,
+  GraduationCap,
+  IndianRupee,
+  Calendar,
+  QrCode,
+  Loader2,
+  CheckCircle2,
+  Clock,
+  MessageCircle
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import GlassCard from "@/components/ui/GlassCard";
+
+const sessionTypes = [
+  { value: "one_time", label: "One-time Session", multiplier: 1 },
+  { value: "weekly", label: "Weekly (4 sessions)", multiplier: 3.5 },
+  { value: "monthly", label: "Monthly (8 sessions)", multiplier: 6 }
+];
+
+export default function BookMentor() {
+  const [user, setUser] = useState(null);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [selectedMentor, setSelectedMentor] = useState(null);
+  const [bookingData, setBookingData] = useState({
+    session_type: "one_time",
+    scheduled_date: "",
+    project_title: "",
+    notes: ""
+  });
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: mentors = [], isLoading } = useQuery({
+    queryKey: ["mentors"],
+    queryFn: () => base44.entities.Mentor.filter({ is_verified: true, available: true }),
+  });
+
+  const bookingMutation = useMutation({
+    mutationFn: async () => {
+      const sessionConfig = sessionTypes.find(s => s.value === bookingData.session_type);
+      const amount = (selectedMentor?.hourly_rate || 500) * sessionConfig.multiplier;
+
+      await base44.entities.MentorBooking.create({
+        student_email: user?.email,
+        student_name: user?.name,
+        mentor_id: selectedMentor?.id,
+        mentor_email: selectedMentor?.email,
+        mentor_name: selectedMentor?.name,
+        session_type: bookingData.session_type,
+        scheduled_date: bookingData.scheduled_date,
+        project_title: bookingData.project_title,
+        notes: bookingData.notes,
+        amount,
+        payment_status: "paid",
+        payment_reference: `PAY${Date.now()}`,
+        booking_status: "confirmed"
+      });
+
+      // Update mentor earnings
+      await base44.entities.Mentor.update(selectedMentor.id, {
+        total_earnings: (selectedMentor.total_earnings || 0) + amount,
+        projects_mentored: (selectedMentor.projects_mentored || 0) + 1
+      });
+    },
+    onSuccess: () => {
+      setPaymentSuccess(true);
+      queryClient.invalidateQueries({ queryKey: ["mentors"] });
+      setTimeout(() => {
+        setSelectedMentor(null);
+        setShowPayment(false);
+        setPaymentSuccess(false);
+        setBookingData({ session_type: "one_time", scheduled_date: "", project_title: "", notes: "" });
+      }, 2000);
+    },
+  });
+
+  const filteredMentors = mentors.filter(m => {
+    const matchesSearch = m.name?.toLowerCase().includes(search.toLowerCase()) ||
+                          m.company?.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = roleFilter === "all" || m.role === roleFilter;
+    return matchesSearch && matchesRole;
+  });
+
+  const getBookingAmount = () => {
+    if (!selectedMentor) return 0;
+    const sessionConfig = sessionTypes.find(s => s.value === bookingData.session_type);
+    return Math.round((selectedMentor.hourly_rate || 500) * sessionConfig.multiplier);
+  };
+
+  const roleColors = {
+    Alumni: "bg-indigo-100 text-indigo-700",
+    Professor: "bg-purple-100 text-purple-700",
+    "Industry Expert": "bg-emerald-100 text-emerald-700"
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+            <Users className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Book a Mentor</h1>
+        </div>
+        <p className="text-slate-500">Connect with experts and pay via UPI</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search mentors..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Role" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Roles</SelectItem>
+            <SelectItem value="Alumni">Alumni</SelectItem>
+            <SelectItem value="Professor">Professor</SelectItem>
+            <SelectItem value="Industry Expert">Industry Expert</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Mentors Grid */}
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      ) : filteredMentors.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <Users className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900">No Mentors Available</h3>
+        </GlassCard>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <AnimatePresence>
+            {filteredMentors.map((mentor, idx) => (
+              <motion.div
+                key={mentor.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <GlassCard className="p-6">
+                  <div className="flex items-start gap-4 mb-4">
+                    <Avatar className="h-14 w-14 ring-2 ring-white shadow-lg">
+                      <AvatarImage src={mentor.avatar_url} />
+                      <AvatarFallback className="bg-gradient-to-br from-blue-400 to-indigo-500 text-white text-lg">
+                        {mentor.name?.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-slate-900 truncate">{mentor.name}</h3>
+                      <Badge className={roleColors[mentor.role]}>{mentor.role}</Badge>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <Briefcase className="h-4 w-4 text-slate-400" />
+                      <span className="truncate">{mentor.company || "Independent"}</span>
+                    </div>
+                    {mentor.graduation_year && (
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <GraduationCap className="h-4 w-4 text-slate-400" />
+                        <span>Class of {mentor.graduation_year}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {mentor.expertise?.slice(0, 3).map((skill, i) => (
+                      <span key={i} className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t">
+                    <div className="flex items-center gap-1">
+                      <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
+                      <span className="font-medium">{mentor.rating || 5.0}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-emerald-600">₹{mentor.hourly_rate || 500}/hr</p>
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={() => setSelectedMentor(mentor)}
+                    className="w-full mt-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white"
+                  >
+                    Book Session
+                  </Button>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Booking Dialog */}
+      <Dialog open={!!selectedMentor && !showPayment} onOpenChange={() => setSelectedMentor(null)}>
+        <DialogContent className="max-w-md">
+          {selectedMentor && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Book Session with {selectedMentor.name}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div>
+                  <Label>Session Type</Label>
+                  <Select
+                    value={bookingData.session_type}
+                    onValueChange={(v) => setBookingData({ ...bookingData, session_type: v })}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sessionTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Preferred Date</Label>
+                  <Input
+                    type="date"
+                    value={bookingData.scheduled_date}
+                    onChange={(e) => setBookingData({ ...bookingData, scheduled_date: e.target.value })}
+                    className="mt-1"
+                    min={new Date().toISOString().split("T")[0]}
+                  />
+                </div>
+
+                <div>
+                  <Label>Project Title (Optional)</Label>
+                  <Input
+                    value={bookingData.project_title}
+                    onChange={(e) => setBookingData({ ...bookingData, project_title: e.target.value })}
+                    placeholder="What project do you need help with?"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <Label>Notes</Label>
+                  <Textarea
+                    value={bookingData.notes}
+                    onChange={(e) => setBookingData({ ...bookingData, notes: e.target.value })}
+                    placeholder="Any specific questions or topics?"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-emerald-700">Total Amount</span>
+                    <span className="text-2xl font-bold text-emerald-700">₹{getBookingAmount().toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => setShowPayment(true)}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                >
+                  <QrCode className="h-4 w-4 mr-2" />
+                  Proceed to Payment
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={showPayment} onOpenChange={() => { setShowPayment(false); setSelectedMentor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Complete Payment</DialogTitle>
+          </DialogHeader>
+          {paymentSuccess ? (
+            <div className="text-center py-8">
+              <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Booking Confirmed!</h3>
+              <p className="text-slate-500 mt-1">Your session has been scheduled</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-emerald-600">₹{getBookingAmount().toLocaleString("en-IN")}</p>
+                <p className="text-sm text-slate-500">Session with {selectedMentor?.name}</p>
+              </div>
+
+              {/* QR Code Placeholder */}
+              <div className="bg-white p-4 rounded-xl border-2 border-dashed border-slate-200">
+                <div className="h-48 w-48 mx-auto bg-slate-100 rounded-lg flex items-center justify-center">
+                  <div className="text-center">
+                    <QrCode className="h-16 w-16 text-slate-400 mx-auto mb-2" />
+                    <p className="text-xs text-slate-500">UPI QR Code</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center text-sm text-slate-500">
+                <p>UPI ID: <strong>{selectedMentor?.upi_id || "ivender@upi"}</strong></p>
+              </div>
+
+              <Button
+                onClick={() => bookingMutation.mutate()}
+                disabled={bookingMutation.isPending}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+              >
+                {bookingMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                )}
+                Confirm Payment (Demo)
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

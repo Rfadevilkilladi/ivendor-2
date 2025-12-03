@@ -1,0 +1,51 @@
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+
+export default function UnifiedCard({ 
+  children, 
+  className, 
+  hover = true, 
+  padding = "p-6",
+  onClick,
+  ...props 
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={hover ? { y: -4, boxShadow: "0 20px 40px -15px rgba(0,0,0,0.12)" } : {}}
+      whileTap={onClick ? { scale: 0.98 } : {}}
+      transition={{ duration: 0.2 }}
+      onClick={onClick}
+      className={cn(
+        "bg-white rounded-xl border border-slate-200/60",
+        "shadow-sm hover:shadow-lg transition-all duration-300",
+        onClick && "cursor-pointer",
+        padding,
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export function CardHeader({ title, subtitle, action, icon: Icon }) {
+  return (
+    <div className="flex items-start justify-between mb-4">
+      <div className="flex items-center gap-3">
+        {Icon && (
+          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+            <Icon className="h-5 w-5 text-white" />
+          </div>
+        )}
+        <div>
+          <h3 className="font-semibold text-slate-900 text-lg">{title}</h3>
+          {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}

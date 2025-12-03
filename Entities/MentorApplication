@@ -1,0 +1,57 @@
+{
+  "name": "MentorApplication",
+  "type": "object",
+  "properties": {
+    "applicant_email": {
+      "type": "string"
+    },
+    "applicant_name": {
+      "type": "string"
+    },
+    "applicant_type": {
+      "type": "string",
+      "enum": [
+        "alumni",
+        "company",
+        "professor"
+      ]
+    },
+    "company_name": {
+      "type": "string"
+    },
+    "graduation_year": {
+      "type": "number"
+    },
+    "expertise": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "bio": {
+      "type": "string"
+    },
+    "linkedin_url": {
+      "type": "string"
+    },
+    "hourly_rate": {
+      "type": "number",
+      "description": "Hourly rate in INR"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "default": "pending"
+    }
+  },
+  "required": [
+    "applicant_email",
+    "applicant_name",
+    "applicant_type",
+    "expertise"
+  ]
+}

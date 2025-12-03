@@ -1,0 +1,638 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  Lightbulb, CreditCard, Lock, Loader2, CheckCircle2, XCircle, 
+  AlertTriangle, Wifi, WifiOff, Settings, RotateCcw, Activity,
+  Fingerprint, Clock, Info, Zap
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+
+// Demo credentials (stored locally for offline support)
+const DEMO_DATA = {
+  student_id: "STU2024001",
+  pin: "123456",
+  name: "Rahul Sharma",
+  email: "rahul.sharma@ivender.edu",
+  department: "Computer Science",
+  year: 3,
+  total_points: 250,
+  user_type: "student",
+  has_paid_access: true,
+  is_verified: true
+};
+
+// Kiosk config
+const IDLE_TIMEOUT = 60000; // 60 seconds
+const RFID_ANIMATION_DURATION = 3000;
+
+// Simple logging utility
+const kioskLog = (event, details = {}) => {
+  const logs = JSON.parse(localStorage.getItem("kiosk_logs") || "[]");
+  const entry = {
+    timestamp: new Date().toISOString(),
+    event,
+    details
+  };
+  logs.push(entry);
+  // Keep last 500 logs, rotate daily
+  const today = new Date().toDateString();
+  const filtered = logs.filter(l => new Date(l.timestamp).toDateString() === today).slice(-500);
+  localStorage.setItem("kiosk_logs", JSON.stringify(filtered));
+  console.log(`[KIOSK] ${event}`, details);
+};
+
+export default function KioskLogin({ onLogin }) {
+  const [loginMethod, setLoginMethod] = useState("welcome"); // welcome, pin, rfid
+  const [studentId, setStudentId] = useState("");
+  const [pin, setPin] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [rfidStatus, setRfidStatus] = useState("waiting"); // waiting, scanning, success, error
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [idleTime, setIdleTime] = useState(0);
+  const [adminPressCount, setAdminPressCount] = useState(0);
+  const adminPressTimer = useRef(null);
+  const idleTimer = useRef(null);
+
+  // Online/Offline detection
+  useEffect(() => {
+    const handleOnline = () => { setIsOnline(true); kioskLog("network_online"); };
+    const handleOffline = () => { setIsOnline(false); kioskLog("network_offline"); };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // Idle timeout reset
+  const resetIdleTimer = useCallback(() => {
+    setIdleTime(0);
+    if (idleTimer.current) clearInterval(idleTimer.current);
+    idleTimer.current = setInterval(() => {
+      setIdleTime(prev => {
+        if (prev >= IDLE_TIMEOUT / 1000) {
+          clearInterval(idleTimer.current);
+          kioskLog("session_timeout");
+          resetToWelcome();
+          return 0;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+  }, []);
+
+  // Reset to welcome screen
+  const resetToWelcome = () => {
+    setLoginMethod("welcome");
+    setStudentId("");
+    setPin("");
+    setError("");
+    setRfidStatus("waiting");
+    setLoading(false);
+    resetIdleTimer();
+  };
+
+  // Start idle timer on mount
+  useEffect(() => {
+    resetIdleTimer();
+    kioskLog("kiosk_started");
+
+    // Disable context menu and selection
+    const preventDefaults = (e) => e.preventDefault();
+    document.addEventListener("contextmenu", preventDefaults);
+    document.addEventListener("selectstart", preventDefaults);
+
+    // Disable back button
+    window.history.pushState(null, "", window.location.href);
+    const handlePopState = () => window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      if (idleTimer.current) clearInterval(idleTimer.current);
+      document.removeEventListener("contextmenu", preventDefaults);
+      document.removeEventListener("selectstart", preventDefaults);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [resetIdleTimer]);
+
+  // Reset idle on any interaction
+  useEffect(() => {
+    const handleActivity = () => resetIdleTimer();
+    window.addEventListener("touchstart", handleActivity);
+    window.addEventListener("click", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    return () => {
+      window.removeEventListener("touchstart", handleActivity);
+      window.removeEventListener("click", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+    };
+  }, [resetIdleTimer]);
+
+  // Admin access via long press corner (5 taps)
+  const handleAdminCornerPress = () => {
+    setAdminPressCount(prev => prev + 1);
+    if (adminPressTimer.current) clearTimeout(adminPressTimer.current);
+    adminPressTimer.current = setTimeout(() => setAdminPressCount(0), 3000);
+    if (adminPressCount >= 4) {
+      setShowDiagnostics(true);
+      setAdminPressCount(0);
+      kioskLog("diagnostics_opened");
+    }
+  };
+
+  // PIN Login handler
+  const handlePinLogin = async (e) => {
+    e?.preventDefault();
+    resetIdleTimer();
+    setLoading(true);
+    setError("");
+    kioskLog("login_attempt", { method: "pin", studentId });
+
+    await new Promise(r => setTimeout(r, 800));
+
+    if (studentId === DEMO_DATA.student_id && pin === DEMO_DATA.pin) {
+      kioskLog("login_success", { studentId });
+      toast.success("Login successful!", { duration: 2000 });
+      onLogin(DEMO_DATA);
+    } else {
+      kioskLog("login_failed", { studentId, reason: "invalid_credentials" });
+      setError("Invalid ID or PIN. Try again.");
+    }
+    setLoading(false);
+  };
+
+  // Auto-fill demo and login
+  const handleUseDemoCredentials = async () => {
+    kioskLog("demo_login_used");
+    setStudentId(DEMO_DATA.student_id);
+    setPin(DEMO_DATA.pin);
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 600));
+    toast.success("Login successful!", { duration: 2000 });
+    onLogin(DEMO_DATA);
+  };
+
+  // RFID Simulation
+  const simulateRfidScan = async () => {
+    resetIdleTimer();
+    setRfidStatus("scanning");
+    kioskLog("rfid_scan_started");
+
+    await new Promise(r => setTimeout(r, RFID_ANIMATION_DURATION));
+
+    // Demo always succeeds
+    setRfidStatus("success");
+    kioskLog("rfid_scan_success");
+    toast.success("Card recognized!", { duration: 1500 });
+    await new Promise(r => setTimeout(r, 1000));
+    onLogin(DEMO_DATA);
+  };
+
+  // Clear kiosk data
+  const clearKioskData = () => {
+    localStorage.removeItem("kiosk_logs");
+    localStorage.removeItem("ivender_user");
+    kioskLog("data_cleared");
+    toast.success("Kiosk data cleared");
+    setShowDiagnostics(false);
+    resetToWelcome();
+  };
+
+  const logs = JSON.parse(localStorage.getItem("kiosk_logs") || "[]").slice(-20).reverse();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-900 to-teal-900 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+      {/* Background Animation */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl animate-pulse delay-1000" />
+      </div>
+
+      {/* Admin Corner (invisible touch target) */}
+      <div 
+        className="absolute top-0 right-0 w-20 h-20 z-50" 
+        onClick={handleAdminCornerPress}
+      />
+
+      {/* Status Bar */}
+      <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isOnline ? (
+            <div className="flex items-center gap-1.5 text-emerald-400 text-sm">
+              <Wifi className="h-4 w-4" />
+              <span>Online</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-amber-400 text-sm">
+              <WifiOff className="h-4 w-4" />
+              <span>Offline Mode</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-slate-400 text-sm">
+          <Clock className="h-4 w-4" />
+          <span>{new Date().toLocaleTimeString()}</span>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <motion.div
+        key={loginMethod}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ duration: 0.3 }}
+        className="w-full max-w-lg relative z-10"
+      >
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <motion.div 
+            className="h-24 w-24 rounded-3xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-emerald-500/40"
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <Lightbulb className="h-12 w-12 text-white" />
+          </motion.div>
+          <h1 className="text-4xl font-bold text-white tracking-tight">I-Vender</h1>
+          <p className="text-xl text-emerald-200 mt-2">IDEA Vending Machine</p>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {/* Welcome Screen */}
+          {loginMethod === "welcome" && (
+            <motion.div
+              key="welcome"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20">
+                <h2 className="text-2xl font-bold text-white text-center mb-6">Welcome, Student!</h2>
+                <p className="text-emerald-100 text-center text-lg mb-8">Choose your login method</p>
+
+                <div className="grid gap-4">
+                  <Button
+                    onClick={() => { setLoginMethod("pin"); kioskLog("method_selected", { method: "pin" }); }}
+                    className="h-16 text-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-2xl shadow-lg"
+                  >
+                    <Lock className="h-6 w-6 mr-3" />
+                    Login with ID + PIN
+                  </Button>
+                  <Button
+                    onClick={() => { setLoginMethod("rfid"); kioskLog("method_selected", { method: "rfid" }); }}
+                    variant="outline"
+                    className="h-16 text-xl border-2 border-white/30 text-white hover:bg-white/10 rounded-2xl"
+                  >
+                    <CreditCard className="h-6 w-6 mr-3" />
+                    Tap RFID Card
+                  </Button>
+                </div>
+              </div>
+
+              {/* Demo Credentials Box - HIGHLIGHTED */}
+              <motion.div 
+                className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-6 shadow-xl"
+                animate={{ scale: [1, 1.02, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="h-14 w-14 rounded-2xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                    <Zap className="h-7 w-7 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-white mb-1">Quick Demo Access</h3>
+                    <p className="text-white/90 text-lg">
+                      <strong>ID:</strong> STU2024001 — <strong>PIN:</strong> 123456
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleUseDemoCredentials}
+                  className="w-full mt-4 h-14 text-lg bg-white text-amber-600 hover:bg-amber-50 rounded-xl font-bold shadow-lg"
+                >
+                  <CheckCircle2 className="h-5 w-5 mr-2" />
+                  Use Demo & Sign In
+                </Button>
+              </motion.div>
+
+              {/* Privacy Note */}
+              <p className="text-center text-emerald-200/60 text-sm flex items-center justify-center gap-2">
+                <Info className="h-4 w-4" />
+                Demo only. No personal data will be stored.
+              </p>
+            </motion.div>
+          )}
+
+          {/* PIN Login Screen */}
+          {loginMethod === "pin" && (
+            <motion.div
+              key="pin"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20">
+                <form onSubmit={handlePinLogin} className="space-y-6">
+                  <div>
+                    <label className="block text-lg font-medium text-white mb-3">Student ID</label>
+                    <Input
+                      value={studentId}
+                      onChange={(e) => { setStudentId(e.target.value.toUpperCase()); setError(""); }}
+                      placeholder="STU2024001"
+                      className="h-16 text-xl bg-white/10 border-white/30 text-white placeholder:text-white/50 rounded-xl"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-lg font-medium text-white mb-3">6-Digit PIN</label>
+                    <Input
+                      type="password"
+                      value={pin}
+                      onChange={(e) => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+                      placeholder="••••••"
+                      maxLength={6}
+                      className="h-16 text-xl bg-white/10 border-white/30 text-white placeholder:text-white/50 rounded-xl tracking-[0.5em] text-center"
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  {/* Inline Error */}
+                  {error && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-2 text-red-400 bg-red-500/20 p-4 rounded-xl"
+                    >
+                      <XCircle className="h-5 w-5 flex-shrink-0" />
+                      <span className="text-lg">{error}</span>
+                    </motion.div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={loading || !studentId || pin.length < 6}
+                    className="w-full h-16 text-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-2xl shadow-lg disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    ) : (
+                      <>
+                        <Fingerprint className="h-6 w-6 mr-2" />
+                        Sign In
+                      </>
+                    )}
+                  </Button>
+                </form>
+
+                {/* Demo Quick Fill */}
+                <div className="mt-6 p-4 rounded-xl bg-amber-500/20 border border-amber-500/30">
+                  <p className="text-amber-200 text-center mb-3">
+                    <strong>Demo:</strong> STU2024001 / 123456
+                  </p>
+                  <Button
+                    onClick={handleUseDemoCredentials}
+                    className="w-full h-12 text-lg bg-amber-500 hover:bg-amber-600 text-white rounded-xl"
+                  >
+                    Use Demo & Sign In
+                  </Button>
+                </div>
+
+                <Button
+                  onClick={resetToWelcome}
+                  variant="ghost"
+                  className="w-full mt-4 text-white/70 hover:text-white hover:bg-white/10 h-12 text-lg rounded-xl"
+                >
+                  ← Back
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* RFID Screen */}
+          {loginMethod === "rfid" && (
+            <motion.div
+              key="rfid"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-10 border border-white/20 text-center">
+                <AnimatePresence mode="wait">
+                  {rfidStatus === "waiting" && (
+                    <motion.div
+                      key="waiting"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <motion.div
+                        className="h-32 w-32 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mx-auto mb-6"
+                        animate={{ 
+                          boxShadow: [
+                            "0 0 0 0 rgba(16, 185, 129, 0.4)",
+                            "0 0 0 30px rgba(16, 185, 129, 0)",
+                          ]
+                        }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      >
+                        <CreditCard className="h-16 w-16 text-white" />
+                      </motion.div>
+                      <h2 className="text-2xl font-bold text-white mb-2">Tap Your RFID Card</h2>
+                      <p className="text-emerald-200 text-lg">Hold your card near the reader</p>
+                      
+                      <Button
+                        onClick={simulateRfidScan}
+                        className="mt-8 h-14 text-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl px-8"
+                      >
+                        Simulate Card Tap (Demo)
+                      </Button>
+                    </motion.div>
+                  )}
+
+                  {rfidStatus === "scanning" && (
+                    <motion.div
+                      key="scanning"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <motion.div
+                        className="h-32 w-32 rounded-full bg-blue-500 flex items-center justify-center mx-auto mb-6"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      >
+                        <Loader2 className="h-16 w-16 text-white" />
+                      </motion.div>
+                      <h2 className="text-2xl font-bold text-white mb-2">Reading Card...</h2>
+                      <p className="text-blue-200 text-lg">Please wait</p>
+                    </motion.div>
+                  )}
+
+                  {rfidStatus === "success" && (
+                    <motion.div
+                      key="success"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                    >
+                      <motion.div
+                        className="h-32 w-32 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-6"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 200 }}
+                      >
+                        <CheckCircle2 className="h-16 w-16 text-white" />
+                      </motion.div>
+                      <h2 className="text-2xl font-bold text-white mb-2">Card Recognized!</h2>
+                      <p className="text-emerald-200 text-lg">Welcome, {DEMO_DATA.name}</p>
+                    </motion.div>
+                  )}
+
+                  {rfidStatus === "error" && (
+                    <motion.div
+                      key="error"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <motion.div
+                        className="h-32 w-32 rounded-full bg-red-500 flex items-center justify-center mx-auto mb-6"
+                        animate={{ x: [-5, 5, -5, 5, 0] }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <XCircle className="h-16 w-16 text-white" />
+                      </motion.div>
+                      <h2 className="text-2xl font-bold text-white mb-2">Card Not Recognized</h2>
+                      <p className="text-red-200 text-lg mb-6">Please try again</p>
+                      <Button
+                        onClick={() => setRfidStatus("waiting")}
+                        className="h-14 text-lg bg-white/20 hover:bg-white/30 text-white rounded-xl px-8"
+                      >
+                        Try Again
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {rfidStatus === "waiting" && (
+                  <Button
+                    onClick={resetToWelcome}
+                    variant="ghost"
+                    className="w-full mt-6 text-white/70 hover:text-white hover:bg-white/10 h-12 text-lg rounded-xl"
+                  >
+                    ← Back
+                  </Button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Idle Timer Warning */}
+      {idleTime > 45 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed bottom-4 left-4 right-4 bg-amber-500 text-white p-4 rounded-xl text-center text-lg font-medium"
+        >
+          <AlertTriangle className="h-5 w-5 inline mr-2" />
+          Session expires in {60 - idleTime}s - Touch to continue
+        </motion.div>
+      )}
+
+      {/* Admin Diagnostics Panel */}
+      <AnimatePresence>
+        {showDiagnostics && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 z-50 p-6 overflow-auto"
+          >
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <Settings className="h-6 w-6" />
+                  Kiosk Diagnostics
+                </h2>
+                <Button
+                  onClick={() => setShowDiagnostics(false)}
+                  variant="ghost"
+                  className="text-white"
+                >
+                  Close
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Status Cards */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white/10 rounded-xl p-4">
+                    <p className="text-slate-400 text-sm">Network Status</p>
+                    <p className={`text-xl font-bold ${isOnline ? "text-emerald-400" : "text-amber-400"}`}>
+                      {isOnline ? "Online" : "Offline"}
+                    </p>
+                  </div>
+                  <div className="bg-white/10 rounded-xl p-4">
+                    <p className="text-slate-400 text-sm">Version</p>
+                    <p className="text-xl font-bold text-white">1.0.0</p>
+                  </div>
+                  <div className="bg-white/10 rounded-xl p-4">
+                    <p className="text-slate-400 text-sm">Log Entries Today</p>
+                    <p className="text-xl font-bold text-white">{logs.length}</p>
+                  </div>
+                  <div className="bg-white/10 rounded-xl p-4">
+                    <p className="text-slate-400 text-sm">Idle Time</p>
+                    <p className="text-xl font-bold text-white">{idleTime}s</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3">
+                  <Button
+                    onClick={clearKioskData}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Clear All Data
+                  </Button>
+                  <Button
+                    onClick={resetToWelcome}
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                  >
+                    <Activity className="h-4 w-4 mr-2" />
+                    Reset Session
+                  </Button>
+                </div>
+
+                {/* Recent Logs */}
+                <div className="bg-white/5 rounded-xl p-4">
+                  <h3 className="text-white font-semibold mb-3">Recent Logs</h3>
+                  <div className="space-y-2 max-h-64 overflow-auto text-sm">
+                    {logs.map((log, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-slate-300">
+                        <span className="text-slate-500 flex-shrink-0">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className="text-emerald-400">{log.event}</span>
+                        {Object.keys(log.details).length > 0 && (
+                          <span className="text-slate-500">{JSON.stringify(log.details)}</span>
+                        )}
+                      </div>
+                    ))}
+                    {logs.length === 0 && <p className="text-slate-500">No logs yet</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

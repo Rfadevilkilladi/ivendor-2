@@ -1,0 +1,290 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import moment from "moment";
+import {
+  BarChart3,
+  Recycle,
+  Users,
+  TrendingUp,
+  Calendar,
+  IndianRupee,
+  Loader2,
+  Download,
+  Filter
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import GlassCard from "@/components/ui/GlassCard";
+import StatCard from "@/components/ui/StatCard";
+
+export default function AdminUsageReports() {
+  const [dateRange, setDateRange] = useState("month");
+  const [studentSearch, setStudentSearch] = useState("");
+
+  const { data: recycling = [], isLoading: loadingRecycling } = useQuery({
+    queryKey: ["all-recycling"],
+    queryFn: () => base44.entities.RecyclingTransaction.list("-created_date"),
+  });
+
+  const { data: attendance = [], isLoading: loadingAttendance } = useQuery({
+    queryKey: ["all-attendance"],
+    queryFn: () => base44.entities.Attendance.list("-created_date"),
+  });
+
+  const { data: machines = [] } = useQuery({
+    queryKey: ["vending-machines"],
+    queryFn: () => base44.entities.VendingMachine.list(),
+  });
+
+  const { data: redemptions = [] } = useQuery({
+    queryKey: ["all-redemptions"],
+    queryFn: () => base44.entities.RewardRedemption.list("-created_date"),
+  });
+
+  // Filter by date range
+  const filterByDate = (items, dateField = "created_date") => {
+    const now = moment();
+    return items.filter(item => {
+      const itemDate = moment(item[dateField]);
+      if (dateRange === "today") return itemDate.isSame(now, "day");
+      if (dateRange === "week") return itemDate.isSame(now, "week");
+      if (dateRange === "month") return itemDate.isSame(now, "month");
+      return true;
+    });
+  };
+
+  const filteredRecycling = filterByDate(recycling);
+  const filteredAttendance = filterByDate(attendance, "date");
+
+  // Calculate stats
+  const totalItemsRecycled = filteredRecycling.reduce((sum, r) => sum + (r.quantity || 0), 0);
+  const totalPointsAwarded = filteredRecycling.reduce((sum, r) => sum + (r.points_earned || 0), 0);
+  const uniqueUsers = [...new Set(filteredRecycling.map(r => r.user_email))].length;
+  const avgPerUser = uniqueUsers > 0 ? Math.round(totalItemsRecycled / uniqueUsers) : 0;
+
+  // Group by location
+  const byLocation = filteredRecycling.reduce((acc, r) => {
+    acc[r.kiosk_location] = (acc[r.kiosk_location] || 0) + (r.quantity || 0);
+    return acc;
+  }, {});
+
+  // Group by type
+  const byType = filteredRecycling.reduce((acc, r) => {
+    acc[r.type] = (acc[r.type] || 0) + (r.quantity || 0);
+    return acc;
+  }, {});
+
+  // Per-student usage
+  const studentUsage = filteredRecycling.reduce((acc, r) => {
+    if (!acc[r.user_email]) {
+      acc[r.user_email] = { email: r.user_email, items: 0, points: 0 };
+    }
+    acc[r.user_email].items += r.quantity || 0;
+    acc[r.user_email].points += r.points_earned || 0;
+    return acc;
+  }, {});
+
+  const studentList = Object.values(studentUsage)
+    .filter(s => s.email?.toLowerCase().includes(studentSearch.toLowerCase()))
+    .sort((a, b) => b.items - a.items);
+
+  const typeLabels = {
+    plastic_bottle: "Plastic Bottles",
+    can: "Aluminum Cans",
+    paper: "Paper",
+    electronics: "E-Waste"
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Usage Reports</h1>
+          <p className="text-slate-500">Vending machine and student usage analytics</p>
+        </div>
+        <div className="flex gap-3">
+          <Select value={dateRange} onValueChange={setDateRange}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline">
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </div>
+      </div>
+
+      {/* Overview Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Recycle} label="Items Recycled" value={totalItemsRecycled} color="emerald" />
+        <StatCard icon={IndianRupee} label="Points Awarded" value={totalPointsAwarded} color="amber" />
+        <StatCard icon={Users} label="Active Users" value={uniqueUsers} color="blue" />
+        <StatCard icon={TrendingUp} label="Avg per User" value={avgPerUser} color="purple" />
+      </div>
+
+      <Tabs defaultValue="overview">
+        <TabsList className="bg-white/50 border mb-6">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="machines">By Machine</TabsTrigger>
+          <TabsTrigger value="students">By Student</TabsTrigger>
+        </TabsList>
+
+        {/* Overview */}
+        <TabsContent value="overview">
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* By Type */}
+            <GlassCard className="p-6">
+              <h3 className="font-semibold text-slate-900 mb-4">Recycling by Type</h3>
+              <div className="space-y-4">
+                {Object.entries(byType).map(([type, count]) => {
+                  const maxCount = Math.max(...Object.values(byType));
+                  const percentage = (count / maxCount) * 100;
+                  return (
+                    <div key={type}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-slate-600">{typeLabels[type] || type}</span>
+                        <span className="font-medium">{count} items</span>
+                      </div>
+                      <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+
+            {/* By Location */}
+            <GlassCard className="p-6">
+              <h3 className="font-semibold text-slate-900 mb-4">Recycling by Location</h3>
+              <div className="space-y-4">
+                {Object.entries(byLocation).map(([location, count]) => {
+                  const maxCount = Math.max(...Object.values(byLocation));
+                  const percentage = (count / maxCount) * 100;
+                  return (
+                    <div key={location}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-slate-600">{location}</span>
+                        <span className="font-medium">{count} items</span>
+                      </div>
+                      <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+          </div>
+        </TabsContent>
+
+        {/* By Machine */}
+        <TabsContent value="machines">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {machines.map((machine) => {
+              const machineRecycling = filteredRecycling.filter(r => r.kiosk_location === machine.location);
+              const machineItems = machineRecycling.reduce((sum, r) => sum + (r.quantity || 0), 0);
+              const machineUsers = [...new Set(machineRecycling.map(r => r.user_email))].length;
+              
+              return (
+                <GlassCard key={machine.id} className="p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <h3 className="font-semibold text-slate-900">{machine.location}</h3>
+                    <Badge className={
+                      machine.fill_level >= 90 ? "bg-red-100 text-red-700" :
+                      machine.fill_level >= 70 ? "bg-amber-100 text-amber-700" :
+                      "bg-emerald-100 text-emerald-700"
+                    }>
+                      {machine.fill_level}% full
+                    </Badge>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Items Collected</span>
+                      <span className="font-medium">{machineItems}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Unique Users</span>
+                      <span className="font-medium">{machineUsers}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Status</span>
+                      <Badge className={machine.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}>
+                        {machine.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </GlassCard>
+              );
+            })}
+          </div>
+        </TabsContent>
+
+        {/* By Student */}
+        <TabsContent value="students">
+          <GlassCard className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-slate-900">Per-Student Usage</h3>
+              <Input
+                placeholder="Search by email..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                className="w-64"
+              />
+            </div>
+            {loadingRecycling ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              </div>
+            ) : studentList.length === 0 ? (
+              <p className="text-center py-10 text-slate-500">No data found</p>
+            ) : (
+              <div className="divide-y">
+                {studentList.slice(0, 20).map((student, idx) => (
+                  <div key={student.email} className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-400 w-6">{idx + 1}</span>
+                      <div>
+                        <p className="font-medium text-slate-900">{student.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6 text-sm">
+                      <div className="text-right">
+                        <p className="font-medium text-slate-900">{student.items} items</p>
+                        <p className="text-slate-500">{student.points} pts earned</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

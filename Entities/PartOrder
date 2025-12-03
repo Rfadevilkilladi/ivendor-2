@@ -1,0 +1,53 @@
+{
+  "name": "PartOrder",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "part_id": {
+      "type": "string"
+    },
+    "part_name": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "total_amount": {
+      "type": "number",
+      "description": "Total in INR"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "paid",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "payment_reference": {
+      "type": "string"
+    },
+    "order_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "shipped",
+        "delivered"
+      ],
+      "default": "pending"
+    },
+    "seller_email": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_email",
+    "part_id",
+    "quantity",
+    "total_amount"
+  ]
+}

@@ -1,0 +1,457 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Recycle,
+  Leaf,
+  Coins,
+  Gift,
+  Plus,
+  Loader2,
+  Coffee,
+  Wallet,
+  Sparkles,
+  TrendingUp,
+  Check,
+  AlertTriangle,
+  CircleDot
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import GlassCard from "@/components/ui/GlassCard";
+import StatCard from "@/components/ui/StatCard";
+
+// Points config
+const POINTS_TO_INR_RATE = 0.5; // 1 point = ₹0.50 cash
+const POINTS_TO_CANTEEN_RATE = 0.75; // 1 point = ₹0.75 canteen value (better deal)
+
+const recycleTypes = [
+  { value: "plastic_bottle", label: "Plastic Bottle", points: 5, icon: "🍾" },
+  { value: "can", label: "Aluminum Can", points: 3, icon: "🥫" },
+  { value: "paper", label: "Paper/Cardboard", points: 2, icon: "📄" },
+  { value: "electronics", label: "E-Waste", points: 15, icon: "📱" }
+];
+
+const rewards = [
+  { type: "canteen_token", name: "Canteen Token", points: 50, value: 37.5, icon: Coffee, color: "from-amber-500 to-orange-500", description: "Better value!" },
+  { type: "canteen_token_100", name: "Canteen ₹75", points: 100, value: 75, icon: Coffee, color: "from-amber-500 to-orange-500", description: "Best value!" },
+  { type: "cash_50", name: "Cash ₹25", points: 50, value: 25, icon: Wallet, color: "from-emerald-500 to-teal-500", description: "Direct to UPI" },
+  { type: "cash_100", name: "Cash ₹50", points: 100, value: 50, icon: Wallet, color: "from-emerald-500 to-teal-500", description: "Direct to UPI" },
+  { type: "cash_500", name: "Cash ₹250", points: 500, value: 250, icon: Wallet, color: "from-emerald-500 to-teal-500", description: "Direct to UPI" }
+];
+
+export default function Recycling() {
+  const [user, setUser] = useState(null);
+  const [recycleDialogOpen, setRecycleDialogOpen] = useState(false);
+  const [redeemDialogOpen, setRedeemDialogOpen] = useState(false);
+  const [selectedReward, setSelectedReward] = useState(null);
+  const [ventOpen, setVentOpen] = useState(false);
+  const [recyclingInProgress, setRecyclingInProgress] = useState(false);
+  const [newRecycling, setNewRecycling] = useState({
+    type: "plastic_bottle",
+    quantity: 1,
+    kiosk_location: "Main Building"
+  });
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: transactions = [], isLoading } = useQuery({
+    queryKey: ["recycling", user?.email],
+    queryFn: () => base44.entities.RecyclingTransaction.filter({ user_email: user?.email }, "-created_date"),
+    enabled: !!user?.email,
+  });
+
+  const { data: machines = [] } = useQuery({
+    queryKey: ["vending-machines"],
+    queryFn: () => base44.entities.VendingMachine.list(),
+  });
+
+  const addRecyclingMutation = useMutation({
+    mutationFn: async (data) => {
+      const typeConfig = recycleTypes.find(t => t.value === data.type);
+      const pointsEarned = (typeConfig?.points || 0) * data.quantity;
+      
+      await base44.entities.RecyclingTransaction.create({
+        ...data,
+        user_email: user?.email,
+        points_earned: pointsEarned
+      });
+
+      // Update user stats
+      const updatedUser = {
+        ...user,
+        total_points: (user?.total_points || 0) + pointsEarned,
+        bottles_recycled: (user?.bottles_recycled || 0) + (data.type === "plastic_bottle" ? data.quantity : 0)
+      };
+      localStorage.setItem("ivender_user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+
+      // Check if machine is getting full and notify
+      const machine = machines.find(m => m.location === data.kiosk_location);
+      if (machine && machine.fill_level >= 90) {
+        // In real app, this would trigger admin notification
+        console.log("Machine almost full - admin notified");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recycling"] });
+      setRecycleDialogOpen(false);
+      setVentOpen(false);
+      setRecyclingInProgress(false);
+      setNewRecycling({ type: "plastic_bottle", quantity: 1, kiosk_location: "Main Building" });
+    },
+  });
+
+  const redeemMutation = useMutation({
+    mutationFn: async (reward) => {
+      await base44.entities.RewardRedemption.create({
+        user_email: user?.email,
+        reward_type: reward.type,
+        points_spent: reward.points,
+        value: reward.value,
+        status: "pending"
+      });
+
+      const updatedUser = {
+        ...user,
+        total_points: (user?.total_points || 0) - reward.points
+      };
+      localStorage.setItem("ivender_user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["redemptions"] });
+      setRedeemDialogOpen(false);
+      setSelectedReward(null);
+    },
+  });
+
+  const startRecycling = () => {
+    // Simulate vent opening
+    setVentOpen(true);
+    setRecyclingInProgress(true);
+  };
+
+  const confirmRecycling = () => {
+    addRecyclingMutation.mutate(newRecycling);
+  };
+
+  const totalRecycled = transactions.reduce((sum, t) => sum + (t.quantity || 0), 0);
+  const totalPointsEarned = transactions.reduce((sum, t) => sum + (t.points_earned || 0), 0);
+  const co2Saved = (totalRecycled * 0.5).toFixed(1);
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+              <Recycle className="h-5 w-5 text-white" />
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Recycling & Rewards</h1>
+          </div>
+          <p className="text-slate-500">Earn points by recycling, redeem for cash or canteen tokens</p>
+        </div>
+        <Dialog open={recycleDialogOpen} onOpenChange={setRecycleDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30">
+              <Plus className="h-4 w-4 mr-2" />
+              Recycle Now
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reverse Vending Machine</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              {!ventOpen ? (
+                <>
+                  <div>
+                    <Label>Item Type</Label>
+                    <Select 
+                      value={newRecycling.type} 
+                      onValueChange={(v) => setNewRecycling({...newRecycling, type: v})}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {recycleTypes.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            <span className="flex items-center gap-2">
+                              <span>{type.icon}</span>
+                              <span>{type.label}</span>
+                              <span className="text-emerald-600">+{type.points} pts</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Quantity</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={newRecycling.quantity}
+                      onChange={(e) => setNewRecycling({...newRecycling, quantity: parseInt(e.target.value) || 1})}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>Kiosk Location</Label>
+                    <Select 
+                      value={newRecycling.kiosk_location} 
+                      onValueChange={(v) => setNewRecycling({...newRecycling, kiosk_location: v})}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Main Building">Main Building</SelectItem>
+                        <SelectItem value="Library">Library</SelectItem>
+                        <SelectItem value="Cafeteria">Cafeteria</SelectItem>
+                        <SelectItem value="Engineering Block">Engineering Block</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                    <p className="text-sm text-emerald-700">Points you'll earn:</p>
+                    <p className="text-2xl font-bold text-emerald-700">
+                      +{(recycleTypes.find(t => t.value === newRecycling.type)?.points || 0) * newRecycling.quantity} pts
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={startRecycling}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                  >
+                    Open Vent & Insert Items
+                  </Button>
+                </>
+              ) : (
+                <div className="text-center py-4">
+                  {/* Vent Animation */}
+                  <motion.div
+                    animate={{ 
+                      scale: [1, 1.1, 1],
+                      borderColor: ["#10b981", "#059669", "#10b981"]
+                    }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="h-32 w-32 rounded-full border-4 border-emerald-500 flex items-center justify-center mx-auto mb-4 bg-emerald-50"
+                  >
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                    >
+                      <Recycle className="h-16 w-16 text-emerald-600" />
+                    </motion.div>
+                  </motion.div>
+                  <div className="flex items-center justify-center gap-2 mb-4">
+                    <CircleDot className="h-4 w-4 text-emerald-500 animate-pulse" />
+                    <span className="text-emerald-700 font-medium">Vent Open - Insert Items Now</span>
+                  </div>
+                  <p className="text-sm text-slate-500 mb-4">
+                    Insert {newRecycling.quantity}x {recycleTypes.find(t => t.value === newRecycling.type)?.label}
+                  </p>
+                  <Button 
+                    onClick={confirmRecycling}
+                    disabled={addRecyclingMutation.isPending}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                  >
+                    {addRecyclingMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    Items Inserted - Close & Confirm
+                  </Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Point Rates Info */}
+      <GlassCard className="p-4">
+        <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-emerald-600" />
+            <span className="text-slate-600">Cash: 1 pt = ₹{POINTS_TO_INR_RATE}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Coffee className="h-4 w-4 text-amber-600" />
+            <span className="text-slate-600">Canteen: 1 pt = ₹{POINTS_TO_CANTEEN_RATE}</span>
+            <Badge className="bg-amber-100 text-amber-700 text-xs">50% Better!</Badge>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Coins} label="Your Points" value={user?.total_points || 0} color="amber" />
+        <StatCard icon={Recycle} label="Items Recycled" value={totalRecycled} color="emerald" />
+        <StatCard icon={Leaf} label="CO₂ Saved" value={`${co2Saved}kg`} color="blue" />
+        <StatCard icon={TrendingUp} label="Total Earned" value={totalPointsEarned} trend={15} color="purple" />
+      </div>
+
+      {/* Rewards Section */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-slate-900">Redeem Rewards</h2>
+          <Badge className="bg-amber-100 text-amber-700">
+            <Coins className="h-3 w-3 mr-1" />
+            {user?.total_points || 0} pts available
+          </Badge>
+        </div>
+        <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {rewards.map((reward) => {
+            const Icon = reward.icon;
+            const canAfford = (user?.total_points || 0) >= reward.points;
+            const isCanteen = reward.type.includes("canteen");
+            return (
+              <GlassCard 
+                key={reward.type}
+                className={`p-5 text-center cursor-pointer ${!canAfford && "opacity-60"}`}
+                onClick={() => {
+                  if (canAfford) {
+                    setSelectedReward(reward);
+                    setRedeemDialogOpen(true);
+                  }
+                }}
+              >
+                <div className={`h-14 w-14 rounded-xl bg-gradient-to-br ${reward.color} flex items-center justify-center mx-auto mb-3`}>
+                  <Icon className="h-7 w-7 text-white" />
+                </div>
+                <h3 className="font-semibold text-slate-900 text-sm mb-1">{reward.name}</h3>
+                <p className="text-lg font-bold text-emerald-600">₹{reward.value}</p>
+                <p className="text-xs text-slate-500">{reward.points} pts</p>
+                {isCanteen && (
+                  <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">{reward.description}</Badge>
+                )}
+              </GlassCard>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Redeem Dialog */}
+      <Dialog open={redeemDialogOpen} onOpenChange={setRedeemDialogOpen}>
+        <DialogContent>
+          {selectedReward && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Confirm Redemption</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div className="text-center">
+                  <div className={`h-16 w-16 rounded-xl bg-gradient-to-br ${selectedReward.color} flex items-center justify-center mx-auto mb-4`}>
+                    <selectedReward.icon className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">{selectedReward.name}</h3>
+                  <p className="text-3xl font-bold text-emerald-600 mt-2">₹{selectedReward.value}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-amber-700">Points to spend:</span>
+                    <span className="font-bold text-amber-800">{selectedReward.points} pts</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-amber-700">Your balance after:</span>
+                    <span className="font-bold text-amber-800">
+                      {(user?.total_points || 0) - selectedReward.points} pts
+                    </span>
+                  </div>
+                </div>
+                {selectedReward.type.includes("canteen") && (
+                  <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100 text-sm text-emerald-700">
+                    🎉 Great choice! Canteen tokens give you 50% more value than cash!
+                  </div>
+                )}
+                <Button
+                  onClick={() => redeemMutation.mutate(selectedReward)}
+                  disabled={redeemMutation.isPending}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                >
+                  {redeemMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Gift className="h-4 w-4 mr-2" />
+                  )}
+                  Confirm Redemption
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Recent Activity */}
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 mb-4">Recent Activity</h2>
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+          </div>
+        ) : transactions.length === 0 ? (
+          <GlassCard className="p-8 text-center">
+            <Recycle className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No recycling activity yet. Start earning points!</p>
+          </GlassCard>
+        ) : (
+          <GlassCard className="divide-y divide-slate-100">
+            <AnimatePresence>
+              {transactions.slice(0, 10).map((transaction, idx) => {
+                const typeConfig = recycleTypes.find(t => t.value === transaction.type);
+                return (
+                  <motion.div
+                    key={transaction.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="flex items-center justify-between p-4"
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-2xl">{typeConfig?.icon}</span>
+                      <div>
+                        <p className="font-medium text-slate-900">
+                          {transaction.quantity}x {typeConfig?.label}
+                        </p>
+                        <p className="text-sm text-slate-500">{transaction.kiosk_location}</p>
+                      </div>
+                    </div>
+                    <Badge className="bg-emerald-100 text-emerald-700">
+                      +{transaction.points_earned} pts
+                    </Badge>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </GlassCard>
+        )}
+      </div>
+    </div>
+  );
+}

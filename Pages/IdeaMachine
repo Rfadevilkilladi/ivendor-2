@@ -1,0 +1,517 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Lightbulb,
+  Filter,
+  Clock,
+  Search,
+  Plus,
+  Loader2,
+  ChevronRight,
+  Bookmark,
+  GraduationCap,
+  IndianRupee,
+  Calendar,
+  Sparkles,
+  CheckCircle,
+  BookOpen,
+  QrCode,
+  Lock
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import GlassCard from "@/components/ui/GlassCard";
+
+// Project selection fee
+const PROJECT_SELECTION_FEE = 50; // ₹50 to view/start projects
+const POINTS_CONVERSION_RATE = 0.75; // 75% of fee converted to points on completion
+
+const departments = [
+  { value: "all", label: "All Departments" },
+  { value: "Mechanical", label: "Mechanical Engineering" },
+  { value: "Civil", label: "Civil Engineering" },
+  { value: "Electrical", label: "Electrical Engineering" },
+  { value: "Computer Science", label: "Computer Science" },
+  { value: "Electronics", label: "Electronics & Communication" }
+];
+
+const budgetRanges = [
+  { value: "all", label: "All Budgets" },
+  { value: "under_5000", label: "Under ₹5,000", min: 0, max: 5000 },
+  { value: "5000_15000", label: "₹5,000 - ₹15,000", min: 5000, max: 15000 },
+  { value: "15000_30000", label: "₹15,000 - ₹30,000", min: 15000, max: 30000 },
+  { value: "over_30000", label: "Over ₹30,000", min: 30000, max: Infinity }
+];
+
+const timeRanges = [
+  { value: "all", label: "All Durations" },
+  { value: "1_2_weeks", label: "1-2 Weeks", min: 1, max: 2 },
+  { value: "2_4_weeks", label: "2-4 Weeks", min: 2, max: 4 },
+  { value: "4_8_weeks", label: "4-8 Weeks", min: 4, max: 8 },
+  { value: "over_8_weeks", label: "Over 8 Weeks", min: 8, max: Infinity }
+];
+
+export default function IdeaMachine() {
+  const [user, setUser] = useState(null);
+  const [filters, setFilters] = useState({
+    department: "all",
+    budget: "all",
+    time: "all",
+    difficulty: "all"
+  });
+  const [selectedIdea, setSelectedIdea] = useState(null);
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [paymentPurpose, setPaymentPurpose] = useState(null); // "access" or "start"
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: allIdeas = [], isLoading } = useQuery({
+    queryKey: ["project-ideas"],
+    queryFn: () => base44.entities.Project.filter({ is_template: true }),
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async (data) => {
+      await base44.entities.Project.create(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project-ideas"] });
+      queryClient.invalidateQueries({ queryKey: ["my-projects"] });
+      setSelectedIdea(null);
+      setPaymentDialog(false);
+    },
+  });
+
+  const unlockAccessMutation = useMutation({
+    mutationFn: async () => {
+      const updatedUser = { ...user, has_paid_access: true };
+      localStorage.setItem("ivender_user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    },
+    onSuccess: () => {
+      setPaymentDialog(false);
+      setPaymentPurpose(null);
+    },
+  });
+
+  // Smart filtering logic
+  const filteredIdeas = allIdeas.filter(idea => {
+    if (filters.department !== "all" && idea.department !== filters.department) return false;
+    if (filters.budget !== "all") {
+      const budgetConfig = budgetRanges.find(b => b.value === filters.budget);
+      if (budgetConfig && idea.estimated_cost) {
+        if (idea.estimated_cost < budgetConfig.min || idea.estimated_cost > budgetConfig.max) return false;
+      }
+    }
+    if (filters.time !== "all") {
+      const timeConfig = timeRanges.find(t => t.value === filters.time);
+      if (timeConfig && idea.duration_weeks) {
+        if (idea.duration_weeks < timeConfig.min || idea.duration_weeks > timeConfig.max) return false;
+      }
+    }
+    if (filters.difficulty !== "all" && idea.difficulty !== filters.difficulty) return false;
+    return true;
+  });
+
+  const handleViewIdea = (idea) => {
+    if (!user?.has_paid_access) {
+      setPaymentPurpose("access");
+      setPaymentDialog(true);
+    } else {
+      setSelectedIdea(idea);
+    }
+  };
+
+  const startProject = async (idea) => {
+    const { id, is_template, created_by, created_date, updated_date, ...projectData } = idea;
+    
+    await createProjectMutation.mutateAsync({
+      ...projectData,
+      is_template: false,
+      status: "idea",
+      progress: 0,
+      initial_fee_paid: PROJECT_SELECTION_FEE,
+      refund_status: "none",
+      refund_earned: 0,
+      milestones: [
+        { title: "Project Planning & Research", completed: false, refund_amount: 5, proof_status: "pending" },
+        { title: "Design & Prototyping", completed: false, refund_amount: 10, proof_status: "pending" },
+        { title: "Development Phase", completed: false, refund_amount: 15, proof_status: "pending" },
+        { title: "Testing & Validation", completed: false, refund_amount: 10, proof_status: "pending" },
+        { title: "Final Presentation", completed: false, refund_amount: 10, proof_status: "pending" }
+      ]
+    });
+  };
+
+  const difficultyColors = {
+    Beginner: "bg-green-100 text-green-700",
+    Intermediate: "bg-amber-100 text-amber-700",
+    Advanced: "bg-red-100 text-red-700"
+  };
+
+  const departmentColors = {
+    Mechanical: "from-orange-500 to-red-500",
+    Civil: "from-amber-500 to-yellow-500",
+    Electrical: "from-blue-500 to-cyan-500",
+    "Computer Science": "from-purple-500 to-indigo-500",
+    Electronics: "from-emerald-500 to-teal-500"
+  };
+
+  const departmentIcons = {
+    Mechanical: "⚙️",
+    Civil: "🏗️",
+    Electrical: "⚡",
+    "Computer Science": "💻",
+    Electronics: "📟"
+  };
+
+  // Check if user has access
+  const hasAccess = user?.has_paid_access || user?.user_type === "admin";
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+            <Lightbulb className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Idea Vending Machine</h1>
+        </div>
+        <p className="text-slate-500">Find your perfect final-year project</p>
+      </div>
+
+      {/* Access Required Banner */}
+      {!hasAccess && (
+        <GlassCard className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="h-12 w-12 rounded-xl bg-amber-100 flex items-center justify-center">
+                <Lock className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Unlock All Project Ideas</h3>
+                <p className="text-sm text-slate-600">One-time payment of ₹{PROJECT_SELECTION_FEE} to access all ideas</p>
+              </div>
+            </div>
+            <Button
+              onClick={() => { setPaymentPurpose("access"); setPaymentDialog(true); }}
+              className="bg-gradient-to-r from-amber-500 to-orange-500 text-white"
+            >
+              <QrCode className="h-4 w-4 mr-2" />
+              Pay ₹{PROJECT_SELECTION_FEE} to Unlock
+            </Button>
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Smart Filter Section */}
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <Filter className="h-5 w-5 text-emerald-500" />
+          <h2 className="font-semibold text-slate-900">Smart Project Finder</h2>
+          <Badge className="bg-emerald-100 text-emerald-700 ml-2">
+            {filteredIdeas.length} projects found
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+              <GraduationCap className="h-4 w-4 text-slate-400" />
+              Department
+            </label>
+            <Select value={filters.department} onValueChange={(v) => setFilters({...filters, department: v})}>
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.value} value={dept.value}>{dept.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+              <IndianRupee className="h-4 w-4 text-slate-400" />
+              Budget Range
+            </label>
+            <Select value={filters.budget} onValueChange={(v) => setFilters({...filters, budget: v})}>
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Select budget" />
+              </SelectTrigger>
+              <SelectContent>
+                {budgetRanges.map((budget) => (
+                  <SelectItem key={budget.value} value={budget.value}>{budget.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-slate-400" />
+              Time Required
+            </label>
+            <Select value={filters.time} onValueChange={(v) => setFilters({...filters, time: v})}>
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Select duration" />
+              </SelectTrigger>
+              <SelectContent>
+                {timeRanges.map((time) => (
+                  <SelectItem key={time.value} value={time.value}>{time.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-slate-400" />
+              Difficulty Level
+            </label>
+            <Select value={filters.difficulty} onValueChange={(v) => setFilters({...filters, difficulty: v})}>
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Select level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Levels</SelectItem>
+                <SelectItem value="Beginner">Beginner</SelectItem>
+                <SelectItem value="Intermediate">Intermediate</SelectItem>
+                <SelectItem value="Advanced">Advanced</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Ideas Grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+        </div>
+      ) : filteredIdeas.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <Lightbulb className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900 mb-2">No Projects Match Your Criteria</h3>
+          <p className="text-slate-500">Try adjusting your filters</p>
+        </GlassCard>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <AnimatePresence mode="popLayout">
+            {filteredIdeas.map((idea, idx) => (
+              <motion.div
+                key={idea.id}
+                layout
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <GlassCard 
+                  className={`p-5 h-full flex flex-col cursor-pointer group ${!hasAccess && "relative overflow-hidden"}`}
+                  onClick={() => handleViewIdea(idea)}
+                >
+                  {!hasAccess && (
+                    <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
+                      <div className="text-center">
+                        <Lock className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                        <p className="text-sm text-slate-600">Unlock to view</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`h-12 w-12 rounded-xl bg-gradient-to-br ${departmentColors[idea.department] || "from-slate-500 to-slate-600"} flex items-center justify-center text-xl`}>
+                      {departmentIcons[idea.department] || "📋"}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge className={difficultyColors[idea.difficulty]}>{idea.difficulty}</Badge>
+                      <span className="text-xs text-slate-500">{idea.department}</span>
+                    </div>
+                  </div>
+                  
+                  <h3 className="font-semibold text-slate-900 mb-2 group-hover:text-emerald-600 transition-colors">
+                    {idea.title}
+                  </h3>
+                  <p className="text-sm text-slate-500 line-clamp-2 flex-1 mb-4">{idea.description}</p>
+
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {idea.technologies?.slice(0, 3).map((tech, i) => (
+                      <span key={i} className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">{tech}</span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm text-slate-500 pt-3 border-t border-slate-100">
+                    <div className="flex items-center gap-1">
+                      <IndianRupee className="h-4 w-4" />
+                      <span>₹{idea.estimated_cost?.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      <span>{idea.duration_weeks} weeks</span>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Idea Detail Dialog */}
+      <Dialog open={!!selectedIdea} onOpenChange={() => setSelectedIdea(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {selectedIdea && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`h-14 w-14 rounded-xl bg-gradient-to-br ${departmentColors[selectedIdea.department] || "from-slate-500 to-slate-600"} flex items-center justify-center text-2xl`}>
+                    {departmentIcons[selectedIdea.department] || "📋"}
+                  </div>
+                  <div>
+                    <Badge className={difficultyColors[selectedIdea.difficulty]}>{selectedIdea.difficulty}</Badge>
+                    <p className="text-sm text-slate-500 mt-1">{selectedIdea.department}</p>
+                  </div>
+                </div>
+                <DialogTitle className="text-xl">{selectedIdea.title}</DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-6 mt-4">
+                <p className="text-slate-600">{selectedIdea.description}</p>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                    <div className="flex items-center gap-2 text-emerald-600 mb-1">
+                      <IndianRupee className="h-4 w-4" />
+                      <span className="text-sm font-medium">Estimated Cost</span>
+                    </div>
+                    <p className="text-2xl font-bold text-emerald-700">₹{selectedIdea.estimated_cost?.toLocaleString('en-IN')}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
+                    <div className="flex items-center gap-2 text-blue-600 mb-1">
+                      <Clock className="h-4 w-4" />
+                      <span className="text-sm font-medium">Duration</span>
+                    </div>
+                    <p className="text-2xl font-bold text-blue-700">{selectedIdea.duration_weeks} weeks</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-slate-900 mb-3">Technologies & Tools</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedIdea.technologies?.map((tech, i) => (
+                      <span key={i} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm">{tech}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-5 w-5 text-amber-600" />
+                    <h4 className="font-semibold text-amber-900">Milestone Refund System</h4>
+                  </div>
+                  <p className="text-sm text-amber-700">
+                    Pay ₹{PROJECT_SELECTION_FEE} to start. Complete milestones and upload proof to earn refunds!
+                    Points earned: {Math.round(PROJECT_SELECTION_FEE * POINTS_CONVERSION_RATE)} pts on completion.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t">
+                  <Button
+                    onClick={() => { setPaymentPurpose("start"); setPaymentDialog(true); }}
+                    className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                    disabled={createProjectMutation.isPending}
+                  >
+                    {createProjectMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <QrCode className="h-4 w-4 mr-2" />
+                    )}
+                    Pay ₹{PROJECT_SELECTION_FEE} & Start Project
+                  </Button>
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <Bookmark className="h-4 w-4" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {paymentPurpose === "access" ? "Unlock Project Ideas" : "Start Project"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 mt-4">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-emerald-600">₹{PROJECT_SELECTION_FEE}</p>
+              <p className="text-sm text-slate-500">
+                {paymentPurpose === "access" ? "One-time access fee" : "Project selection fee"}
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border-2 border-dashed border-slate-200">
+              <div className="h-48 w-48 mx-auto bg-slate-100 rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <QrCode className="h-16 w-16 text-slate-400 mx-auto mb-2" />
+                  <p className="text-xs text-slate-500">Scan to pay via UPI</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center text-sm text-slate-500">
+              <p>UPI ID: <strong>ivender@upi</strong></p>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (paymentPurpose === "access") {
+                  unlockAccessMutation.mutate();
+                } else if (selectedIdea) {
+                  startProject(selectedIdea);
+                }
+              }}
+              disabled={unlockAccessMutation.isPending || createProjectMutation.isPending}
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+            >
+              {(unlockAccessMutation.isPending || createProjectMutation.isPending) ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Confirm Payment (Demo)
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

@@ -1,0 +1,76 @@
+{
+  "name": "Mentor",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "Alumni",
+        "Professor",
+        "Industry Expert"
+      ]
+    },
+    "expertise": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Areas of expertise"
+    },
+    "company": {
+      "type": "string"
+    },
+    "graduation_year": {
+      "type": "number"
+    },
+    "bio": {
+      "type": "string"
+    },
+    "avatar_url": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "number",
+      "default": 5
+    },
+    "projects_mentored": {
+      "type": "number",
+      "default": 0
+    },
+    "available": {
+      "type": "boolean",
+      "default": true
+    },
+    "linkedin_url": {
+      "type": "string"
+    },
+    "hourly_rate": {
+      "type": "number",
+      "default": 500,
+      "description": "Hourly rate in INR"
+    },
+    "total_earnings": {
+      "type": "number",
+      "default": 0
+    },
+    "upi_id": {
+      "type": "string",
+      "description": "UPI ID for payments"
+    },
+    "is_verified": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name",
+    "email",
+    "role"
+  ]
+}

@@ -1,0 +1,400 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import moment from "moment";
+import {
+  Coins,
+  TrendingUp,
+  TrendingDown,
+  Recycle,
+  UserCheck,
+  AlertTriangle,
+  FolderKanban,
+  Users,
+  Calendar,
+  Gift,
+  ArrowUpRight,
+  ArrowDownRight,
+  Loader2,
+  Sparkles,
+  Target,
+  Coffee,
+  Wallet,
+  IndianRupee
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import GlassCard from "@/components/ui/GlassCard";
+import StatCard from "@/components/ui/StatCard";
+
+// Redemption rates
+const POINTS_TO_INR_RATE = 0.5; // 1 point = ₹0.50 cash
+const POINTS_TO_CANTEEN_RATE = 0.75; // 1 point = ₹0.75 canteen value
+
+const actionIcons = {
+  recycling: Recycle,
+  attendance: UserCheck,
+  report: AlertTriangle,
+  project_milestone: FolderKanban,
+  referral: Users,
+  suggestion: Sparkles,
+  event_participation: Calendar,
+  redemption: Gift
+};
+
+const actionColors = {
+  recycling: "bg-emerald-100 text-emerald-700",
+  attendance: "bg-blue-100 text-blue-700",
+  report: "bg-rose-100 text-rose-700",
+  project_milestone: "bg-purple-100 text-purple-700",
+  referral: "bg-amber-100 text-amber-700",
+  suggestion: "bg-indigo-100 text-indigo-700",
+  event_participation: "bg-cyan-100 text-cyan-700",
+  redemption: "bg-pink-100 text-pink-700"
+};
+
+const redeemOptions = [
+  { type: "canteen_50", name: "Canteen Token ₹37.50", points: 50, value: 37.5, icon: Coffee, isCanteen: true },
+  { type: "canteen_100", name: "Canteen Token ₹75", points: 100, value: 75, icon: Coffee, isCanteen: true },
+  { type: "canteen_200", name: "Canteen Token ₹150", points: 200, value: 150, icon: Coffee, isCanteen: true },
+  { type: "cash_50", name: "Cash ₹25", points: 50, value: 25, icon: Wallet, isCanteen: false },
+  { type: "cash_100", name: "Cash ₹50", points: 100, value: 50, icon: Wallet, isCanteen: false },
+  { type: "cash_500", name: "Cash ₹250", points: 500, value: 250, icon: Wallet, isCanteen: false }
+];
+
+export default function LoyaltyPoints() {
+  const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("all");
+  const [redeemDialogOpen, setRedeemDialogOpen] = useState(false);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: transactions = [], isLoading } = useQuery({
+    queryKey: ["loyalty-transactions", user?.email],
+    queryFn: () => base44.entities.LoyaltyTransaction.filter({ user_email: user?.email }, "-created_date"),
+    enabled: !!user?.email,
+  });
+
+  const redeemMutation = useMutation({
+    mutationFn: async (option) => {
+      await base44.entities.RewardRedemption.create({
+        user_email: user?.email,
+        reward_type: option.type,
+        points_spent: option.points,
+        value: option.value,
+        status: "pending"
+      });
+
+      await base44.entities.LoyaltyTransaction.create({
+        user_email: user?.email,
+        action_type: "redemption",
+        points: -option.points,
+        description: `Redeemed for ${option.name}`,
+        balance_after: (user?.total_points || 0) - option.points
+      });
+
+      const updatedUser = { ...user, total_points: (user?.total_points || 0) - option.points };
+      localStorage.setItem("ivender_user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["loyalty-transactions"] });
+      setRedeemDialogOpen(false);
+      setSelectedOption(null);
+    },
+  });
+
+  // Calculate stats
+  const totalEarned = transactions.filter(t => t.points > 0).reduce((sum, t) => sum + t.points, 0);
+  const totalSpent = Math.abs(transactions.filter(t => t.points < 0).reduce((sum, t) => sum + t.points, 0));
+  const thisMonthEarned = transactions
+    .filter(t => t.points > 0 && moment(t.created_date).isSame(moment(), 'month'))
+    .reduce((sum, t) => sum + t.points, 0);
+
+  // Group transactions by type
+  const byType = transactions.reduce((acc, t) => {
+    acc[t.action_type] = (acc[t.action_type] || 0) + (t.points > 0 ? t.points : 0);
+    return acc;
+  }, {});
+
+  // Filter transactions
+  const filteredTransactions = activeTab === "all" 
+    ? transactions 
+    : activeTab === "earned"
+      ? transactions.filter(t => t.points > 0)
+      : transactions.filter(t => t.points < 0);
+
+  // Calculate equivalent values
+  const cashValue = (user?.total_points || 0) * POINTS_TO_INR_RATE;
+  const canteenValue = (user?.total_points || 0) * POINTS_TO_CANTEEN_RATE;
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+            <Coins className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Loyalty Points</h1>
+        </div>
+        <p className="text-slate-500">Track earnings, redeem for cash or canteen tokens</p>
+      </div>
+
+      {/* Points Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 p-8 text-white"
+      >
+        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/4 blur-2xl" />
+        
+        <div className="relative z-10">
+          <p className="text-amber-100 text-sm font-medium mb-1">Available Balance</p>
+          <div className="flex items-baseline gap-2 mb-4">
+            <span className="text-5xl font-bold">{user?.total_points || 0}</span>
+            <span className="text-xl text-amber-100">points</span>
+          </div>
+
+          {/* Equivalent Values */}
+          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-white/10 backdrop-blur mb-6">
+            <div>
+              <p className="text-amber-100 text-xs flex items-center gap-1">
+                <Wallet className="h-3 w-3" /> Cash Value
+              </p>
+              <p className="text-xl font-bold">₹{cashValue.toLocaleString("en-IN")}</p>
+            </div>
+            <div>
+              <p className="text-amber-100 text-xs flex items-center gap-1">
+                <Coffee className="h-3 w-3" /> Canteen Value
+              </p>
+              <p className="text-xl font-bold">₹{canteenValue.toLocaleString("en-IN")}</p>
+              <Badge className="bg-white/20 text-white text-xs mt-1">50% More!</Badge>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <p className="text-amber-100 text-sm">Total Earned</p>
+              <p className="text-xl font-semibold flex items-center gap-1">
+                <TrendingUp className="h-4 w-4" />
+                {totalEarned}
+              </p>
+            </div>
+            <div>
+              <p className="text-amber-100 text-sm">Total Spent</p>
+              <p className="text-xl font-semibold flex items-center gap-1">
+                <TrendingDown className="h-4 w-4" />
+                {totalSpent}
+              </p>
+            </div>
+            <div>
+              <p className="text-amber-100 text-sm">This Month</p>
+              <p className="text-xl font-semibold flex items-center gap-1">
+                <Calendar className="h-4 w-4" />
+                +{thisMonthEarned}
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Redeem Options */}
+      <GlassCard className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-slate-900">Redeem Points</h3>
+          <div className="text-sm text-slate-500">
+            1 pt = ₹{POINTS_TO_INR_RATE} cash | 1 pt = ₹{POINTS_TO_CANTEEN_RATE} canteen
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {redeemOptions.map((option) => {
+            const Icon = option.icon;
+            const canAfford = (user?.total_points || 0) >= option.points;
+            return (
+              <button
+                key={option.type}
+                onClick={() => {
+                  if (canAfford) {
+                    setSelectedOption(option);
+                    setRedeemDialogOpen(true);
+                  }
+                }}
+                disabled={!canAfford}
+                className={`p-4 rounded-xl border text-center transition-all ${
+                  canAfford 
+                    ? "bg-white border-slate-200 hover:border-emerald-300 hover:shadow-md cursor-pointer" 
+                    : "bg-slate-50 border-slate-100 opacity-60 cursor-not-allowed"
+                }`}
+              >
+                <div className={`h-10 w-10 rounded-lg ${option.isCanteen ? "bg-amber-100" : "bg-emerald-100"} flex items-center justify-center mx-auto mb-2`}>
+                  <Icon className={`h-5 w-5 ${option.isCanteen ? "text-amber-600" : "text-emerald-600"}`} />
+                </div>
+                <p className="font-bold text-slate-900">₹{option.value}</p>
+                <p className="text-xs text-slate-500">{option.points} pts</p>
+                {option.isCanteen && (
+                  <Badge className="mt-1 bg-amber-100 text-amber-700 text-xs">Better!</Badge>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </GlassCard>
+
+      {/* Redeem Dialog */}
+      <Dialog open={redeemDialogOpen} onOpenChange={setRedeemDialogOpen}>
+        <DialogContent className="max-w-sm">
+          {selectedOption && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Confirm Redemption</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div className="text-center">
+                  <div className={`h-16 w-16 rounded-xl ${selectedOption.isCanteen ? "bg-amber-100" : "bg-emerald-100"} flex items-center justify-center mx-auto mb-3`}>
+                    <selectedOption.icon className={`h-8 w-8 ${selectedOption.isCanteen ? "text-amber-600" : "text-emerald-600"}`} />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">{selectedOption.name}</h3>
+                  <p className="text-3xl font-bold text-emerald-600 mt-2">₹{selectedOption.value}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-50 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-600">Points Required</span>
+                    <span className="font-medium">{selectedOption.points}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-600">Current Balance</span>
+                    <span className="font-medium">{user?.total_points || 0}</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-2 border-t">
+                    <span className="text-slate-600">Balance After</span>
+                    <span className="font-bold text-emerald-600">{(user?.total_points || 0) - selectedOption.points}</span>
+                  </div>
+                </div>
+                {selectedOption.isCanteen && (
+                  <div className="p-3 rounded-lg bg-amber-50 text-sm text-amber-700">
+                    🎉 Smart choice! Canteen tokens give 50% more value!
+                  </div>
+                )}
+                <Button
+                  onClick={() => redeemMutation.mutate(selectedOption)}
+                  disabled={redeemMutation.isPending}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                >
+                  {redeemMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Gift className="h-4 w-4 mr-2" />
+                  )}
+                  Confirm Redemption
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Stats by Category */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Recycle} label="Recycling" value={byType.recycling || 0} color="emerald" />
+        <StatCard icon={UserCheck} label="Attendance" value={byType.attendance || 0} color="blue" />
+        <StatCard icon={AlertTriangle} label="Reports" value={byType.report || 0} color="rose" />
+        <StatCard icon={FolderKanban} label="Milestones" value={byType.project_milestone || 0} color="purple" />
+      </div>
+
+      {/* Transaction History */}
+      <div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-slate-900">Transaction History</h2>
+            <TabsList className="bg-white/50 border">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="earned">Earned</TabsTrigger>
+              <TabsTrigger value="spent">Spent</TabsTrigger>
+            </TabsList>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+            </div>
+          ) : filteredTransactions.length === 0 ? (
+            <GlassCard className="p-12 text-center">
+              <Coins className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">No Transactions Yet</h3>
+              <p className="text-slate-500">Start earning points through recycling, attendance, and more!</p>
+            </GlassCard>
+          ) : (
+            <GlassCard className="divide-y divide-slate-100">
+              <AnimatePresence>
+                {filteredTransactions.map((transaction, idx) => {
+                  const Icon = actionIcons[transaction.action_type] || Coins;
+                  const isPositive = transaction.points > 0;
+                  
+                  return (
+                    <motion.div
+                      key={transaction.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      className="flex items-center justify-between p-4"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${actionColors[transaction.action_type] || "bg-slate-100"}`}>
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900 capitalize">
+                            {transaction.action_type?.replace("_", " ")}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {transaction.description || "Points transaction"}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {moment(transaction.created_date).format("MMM D, YYYY • h:mm A")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-lg font-bold flex items-center gap-1 ${
+                          isPositive ? "text-emerald-600" : "text-red-600"
+                        }`}>
+                          {isPositive ? (
+                            <ArrowUpRight className="h-4 w-4" />
+                          ) : (
+                            <ArrowDownRight className="h-4 w-4" />
+                          )}
+                          {isPositive ? "+" : ""}{transaction.points}
+                        </p>
+                        {transaction.balance_after !== undefined && (
+                          <p className="text-xs text-slate-400">
+                            Balance: {transaction.balance_after}
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </GlassCard>
+          )}
+        </Tabs>
+      </div>
+    </div>
+  );
+}

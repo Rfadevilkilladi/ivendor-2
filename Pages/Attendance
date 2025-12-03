@@ -1,0 +1,516 @@
+import React, { useState, useEffect, useRef } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import moment from "moment";
+import {
+  UserCheck,
+  Clock,
+  MapPin,
+  Calendar,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Loader2,
+  Fingerprint,
+  Scan,
+  TrendingUp,
+  Award,
+  CreditCard,
+  Camera,
+  Wifi,
+  CircleDot
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import GlassCard from "@/components/ui/GlassCard";
+import StatCard from "@/components/ui/StatCard";
+
+const locations = [
+  "Main Building - Entrance",
+  "Library",
+  "Engineering Block A",
+  "Engineering Block B",
+  "Computer Lab",
+  "Workshop"
+];
+
+export default function Attendance() {
+  const [user, setUser] = useState(null);
+  const [selectedLocation, setSelectedLocation] = useState(locations[0]);
+  const [markingAttendance, setMarkingAttendance] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [attendanceMethod, setAttendanceMethod] = useState("rfid");
+  const [rfidScanning, setRfidScanning] = useState(false);
+  const [facialScanning, setFacialScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const videoRef = useRef(null);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: attendanceRecords = [], isLoading } = useQuery({
+    queryKey: ["attendance", user?.email],
+    queryFn: () => base44.entities.Attendance.filter({ student_email: user?.email }, "-created_date"),
+    enabled: !!user?.email,
+  });
+
+  const markAttendanceMutation = useMutation({
+    mutationFn: async (method) => {
+      const now = moment();
+      const today = now.format("YYYY-MM-DD");
+      const time = now.format("HH:mm:ss");
+
+      // Check if already marked today
+      const todayRecord = attendanceRecords.find(r => r.date === today);
+      if (todayRecord) {
+        throw new Error("Already marked attendance for today");
+      }
+
+      // Determine status based on time
+      const hour = now.hour();
+      let status = "present";
+      if (hour >= 10) status = "late";
+
+      const pointsAwarded = status === "present" ? 5 : 2;
+
+      await base44.entities.Attendance.create({
+        student_id: user?.student_id || "STU001",
+        student_email: user?.email,
+        student_name: user?.name || user?.full_name,
+        date: today,
+        check_in_time: time,
+        location: selectedLocation,
+        method: method || "manual",
+        status,
+        points_awarded: pointsAwarded
+      });
+
+      // Award loyalty points
+      await base44.entities.LoyaltyTransaction.create({
+        user_email: user?.email,
+        action_type: "attendance",
+        points: pointsAwarded,
+        description: `Attendance via ${method} at ${selectedLocation}`,
+        balance_after: (user?.total_points || 0) + pointsAwarded
+      });
+
+      // Update user points in localStorage
+      const updatedUser = { ...user, total_points: (user?.total_points || 0) + pointsAwarded };
+      localStorage.setItem("ivender_user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+
+      return { status, points: pointsAwarded };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      setMarkingAttendance(false);
+      setRfidScanning(false);
+      setFacialScanning(false);
+      setScanProgress(0);
+    },
+  });
+
+  // Simulate RFID scan
+  const startRfidScan = () => {
+    setRfidScanning(true);
+    setScanProgress(0);
+    
+    const interval = setInterval(() => {
+      setScanProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          markAttendanceMutation.mutate("rfid");
+          return 100;
+        }
+        return prev + 20;
+      });
+    }, 300);
+  };
+
+  // Simulate facial recognition
+  const startFacialScan = async () => {
+    setFacialScanning(true);
+    setScanProgress(0);
+
+    // Try to access camera (demo - we won't actually use it)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      // Simulate processing
+      const interval = setInterval(() => {
+        setScanProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            // Stop camera
+            stream.getTracks().forEach(track => track.stop());
+            markAttendanceMutation.mutate("facial");
+            return 100;
+          }
+          return prev + 10;
+        });
+      }, 400);
+    } catch (err) {
+      // Camera not available, just simulate
+      const interval = setInterval(() => {
+        setScanProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            markAttendanceMutation.mutate("facial");
+            return 100;
+          }
+          return prev + 10;
+        });
+      }, 400);
+    }
+  };
+
+  const todayRecord = attendanceRecords.find(r => r.date === moment().format("YYYY-MM-DD"));
+  const totalDays = attendanceRecords.length;
+  const presentDays = attendanceRecords.filter(r => r.status === "present").length;
+  const lateDays = attendanceRecords.filter(r => r.status === "late").length;
+  const attendancePercentage = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+
+  // Get attendance for calendar
+  const attendanceDates = attendanceRecords.map(r => new Date(r.date));
+
+  const statusConfig = {
+    present: { label: "Present", color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2 },
+    late: { label: "Late", color: "bg-amber-100 text-amber-700", icon: AlertCircle },
+    absent: { label: "Absent", color: "bg-red-100 text-red-700", icon: XCircle }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+            <UserCheck className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Attendance Tracker</h1>
+        </div>
+        <p className="text-slate-500">Mark attendance and earn loyalty points</p>
+      </div>
+
+      {/* Mark Attendance Card */}
+      <GlassCard className="p-6">
+        {todayRecord ? (
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="h-16 w-16 rounded-2xl flex items-center justify-center bg-emerald-100">
+                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Attendance Marked!</h2>
+                <p className="text-slate-500">{moment().format("dddd, MMMM D, YYYY")}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge className={statusConfig[todayRecord.status]?.color}>
+                    {statusConfig[todayRecord.status]?.label}
+                  </Badge>
+                  <Badge variant="outline" className="capitalize">
+                    via {todayRecord.method}
+                  </Badge>
+                  <span className="text-sm text-slate-500">
+                    at {todayRecord.check_in_time} • {todayRecord.location}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+              <div className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-emerald-600" />
+                <span className="font-medium text-emerald-700">
+                  +{todayRecord.points_awarded} points earned!
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Mark Today's Attendance</h2>
+                <p className="text-slate-500">{moment().format("dddd, MMMM D, YYYY")}</p>
+              </div>
+              <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select location" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Tabs value={attendanceMethod} onValueChange={setAttendanceMethod} className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="rfid" className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> RFID Card
+                </TabsTrigger>
+                <TabsTrigger value="facial" className="flex items-center gap-2">
+                  <Camera className="h-4 w-4" /> Face Scan
+                </TabsTrigger>
+                <TabsTrigger value="manual" className="flex items-center gap-2">
+                  <Fingerprint className="h-4 w-4" /> Manual
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="rfid" className="mt-4">
+                <div className="text-center py-8">
+                  {rfidScanning ? (
+                    <motion.div
+                      animate={{ scale: [1, 1.1, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                      className="inline-block"
+                    >
+                      <div className="h-32 w-32 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4 relative">
+                        <CreditCard className="h-12 w-12 text-blue-600" />
+                        <motion.div
+                          animate={{ opacity: [0.5, 1, 0.5] }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                          className="absolute inset-0 rounded-full border-4 border-blue-400"
+                        />
+                        <div className="absolute -top-2 -right-2">
+                          <Wifi className="h-6 w-6 text-blue-500 animate-pulse" />
+                        </div>
+                      </div>
+                      <p className="text-blue-600 font-medium">Scanning RFID Card...</p>
+                      <div className="w-48 h-2 bg-blue-100 rounded-full mx-auto mt-3 overflow-hidden">
+                        <motion.div 
+                          className="h-full bg-blue-500 rounded-full"
+                          style={{ width: `${scanProgress}%` }}
+                        />
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <>
+                      <div className="h-32 w-32 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                        <CreditCard className="h-12 w-12 text-slate-400" />
+                      </div>
+                      <p className="text-slate-600 mb-4">Tap your RFID card on the reader</p>
+                      <Button
+                        onClick={startRfidScan}
+                        className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white"
+                      >
+                        <Wifi className="h-4 w-4 mr-2" />
+                        Simulate RFID Tap
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="facial" className="mt-4">
+                <div className="text-center py-8">
+                  {facialScanning ? (
+                    <div className="space-y-4">
+                      <div className="h-48 w-48 rounded-2xl bg-slate-900 mx-auto overflow-hidden relative">
+                        <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <motion.div
+                            animate={{ 
+                              borderColor: ["#22c55e", "#3b82f6", "#22c55e"],
+                              scale: [1, 1.05, 1]
+                            }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                            className="h-32 w-32 rounded-full border-4 border-green-500"
+                          />
+                        </div>
+                        <div className="absolute bottom-2 left-0 right-0">
+                          <div className="flex items-center justify-center gap-2 text-white text-sm">
+                            <CircleDot className="h-4 w-4 text-red-500 animate-pulse" />
+                            <span>Analyzing face...</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="w-48 h-2 bg-emerald-100 rounded-full mx-auto overflow-hidden">
+                        <motion.div 
+                          className="h-full bg-emerald-500 rounded-full"
+                          style={{ width: `${scanProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-emerald-600 font-medium">
+                        {scanProgress < 50 ? "Detecting face..." : scanProgress < 80 ? "Verifying identity..." : "Match found!"}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="h-32 w-32 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                        <Camera className="h-12 w-12 text-slate-400" />
+                      </div>
+                      <p className="text-slate-600 mb-4">Position your face in the camera</p>
+                      <Button
+                        onClick={startFacialScan}
+                        className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                      >
+                        <Camera className="h-4 w-4 mr-2" />
+                        Start Face Scan
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="manual" className="mt-4">
+                <div className="text-center py-8">
+                  <div className="h-32 w-32 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                    <Fingerprint className="h-12 w-12 text-slate-400" />
+                  </div>
+                  <p className="text-slate-600 mb-4">Manual check-in (requires admin approval)</p>
+                  <Button
+                    onClick={() => markAttendanceMutation.mutate("manual")}
+                    disabled={markAttendanceMutation.isPending}
+                    variant="outline"
+                  >
+                    {markAttendanceMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Scan className="h-4 w-4 mr-2" />
+                    )}
+                    Manual Check-in
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          icon={Calendar}
+          label="Total Days"
+          value={totalDays}
+          color="blue"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Present"
+          value={presentDays}
+          color="emerald"
+        />
+        <StatCard
+          icon={AlertCircle}
+          label="Late"
+          value={lateDays}
+          color="amber"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Attendance %"
+          value={`${attendancePercentage}%`}
+          color="purple"
+        />
+      </div>
+
+      {/* Calendar and History */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Calendar View */}
+        <GlassCard className="p-6">
+          <h3 className="font-semibold text-slate-900 mb-4">Attendance Calendar</h3>
+          <CalendarComponent
+            mode="single"
+            selected={selectedDate}
+            onSelect={setSelectedDate}
+            className="rounded-md border-0"
+            modifiers={{
+              attended: attendanceDates
+            }}
+            modifiersStyles={{
+              attended: {
+                backgroundColor: "#10b981",
+                color: "white",
+                borderRadius: "50%"
+              }
+            }}
+          />
+        </GlassCard>
+
+        {/* Recent History */}
+        <GlassCard className="p-6">
+          <h3 className="font-semibold text-slate-900 mb-4">Recent Attendance</h3>
+          {isLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+            </div>
+          ) : attendanceRecords.length === 0 ? (
+            <div className="text-center py-10">
+              <UserCheck className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-500">No attendance records yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              <AnimatePresence>
+                {attendanceRecords.slice(0, 10).map((record, idx) => {
+                  const StatusIcon = statusConfig[record.status]?.icon || Clock;
+                  return (
+                    <motion.div
+                      key={record.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="flex items-center justify-between p-3 rounded-xl bg-slate-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${statusConfig[record.status]?.color}`}>
+                          <StatusIcon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900">
+                            {moment(record.date).format("ddd, MMM D")}
+                          </p>
+                          <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <Clock className="h-3 w-3" />
+                            <span>{record.check_in_time}</span>
+                            <span>•</span>
+                            <MapPin className="h-3 w-3" />
+                            <span>{record.location}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge className={statusConfig[record.status]?.color}>
+                          {statusConfig[record.status]?.label}
+                        </Badge>
+                        {record.points_awarded > 0 && (
+                          <p className="text-xs text-emerald-600 mt-1">
+                            +{record.points_awarded} pts
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+        </GlassCard>
+      </div>
+    </div>
+  );
+}

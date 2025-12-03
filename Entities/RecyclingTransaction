@@ -1,0 +1,33 @@
+{
+  "name": "RecyclingTransaction",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "plastic_bottle",
+        "can",
+        "paper",
+        "electronics"
+      ]
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "points_earned": {
+      "type": "number"
+    },
+    "kiosk_location": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_email",
+    "type",
+    "quantity",
+    "points_earned"
+  ]
+}

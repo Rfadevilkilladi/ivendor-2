@@ -1,0 +1,652 @@
+import React, { useState, useRef, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Bot,
+  X,
+  Send,
+  Loader2,
+  Sparkles,
+  Lightbulb,
+  Wrench,
+  BookOpen,
+  MessageCircle,
+  ListTodo,
+  TrendingUp,
+  Cpu,
+  Zap,
+  RotateCcw,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Check,
+  ChevronDown,
+  IndianRupee,
+  Settings2,
+  ArrowLeft
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
+
+const quickPrompts = [
+  { icon: Lightbulb, label: "Custom Ideas", prompt: null, category: "ideas", openWizard: true },
+  { icon: Wrench, label: "Components Help", prompt: "What essential components and tools do I need for building a smart home automation system? List them with approximate costs in INR.", category: "components" },
+  { icon: ListTodo, label: "Task Breakdown", prompt: "Help me create a detailed project plan with milestones and weekly tasks for a 12-week project timeline.", category: "planning" },
+  { icon: TrendingUp, label: "Trending Tech", prompt: "What are the most in-demand technologies for engineering projects in 2024? How can I incorporate them into my final year project?", category: "trends" },
+  { icon: Cpu, label: "Technical Guide", prompt: "I need help understanding microcontroller selection - Arduino vs Raspberry Pi vs ESP32. Which should I use for my IoT project?", category: "technical" },
+  { icon: BookOpen, label: "Learning Path", prompt: "Create a learning roadmap for someone starting with embedded systems and IoT development. Include free resources and estimated time.", category: "learning" },
+];
+
+const programmingLanguages = [
+  { value: "python", label: "Python" },
+  { value: "c_cpp", label: "C/C++" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "java", label: "Java" },
+  { value: "arduino", label: "Arduino (C++)" },
+  { value: "micropython", label: "MicroPython" },
+  { value: "rust", label: "Rust" },
+  { value: "any", label: "Any Language" },
+];
+
+const microcontrollers = [
+  { value: "arduino_uno", label: "Arduino Uno" },
+  { value: "arduino_mega", label: "Arduino Mega" },
+  { value: "esp32", label: "ESP32" },
+  { value: "esp8266", label: "ESP8266" },
+  { value: "raspberry_pi", label: "Raspberry Pi" },
+  { value: "stm32", label: "STM32" },
+  { value: "any", label: "Any / No preference" },
+  { value: "none", label: "Software Only (No Hardware)" },
+];
+
+const budgetRanges = [
+  { value: "under_2000", label: "Under ₹2,000", min: 0, max: 2000 },
+  { value: "2000_5000", label: "₹2,000 - ₹5,000", min: 2000, max: 5000 },
+  { value: "5000_10000", label: "₹5,000 - ₹10,000", min: 5000, max: 10000 },
+  { value: "10000_20000", label: "₹10,000 - ₹20,000", min: 10000, max: 20000 },
+  { value: "over_20000", label: "Over ₹20,000", min: 20000, max: null },
+  { value: "flexible", label: "Flexible / No limit" },
+];
+
+const complexityLevels = [
+  { value: "beginner", label: "Beginner", desc: "Simple concepts, basic components" },
+  { value: "intermediate", label: "Intermediate", desc: "Moderate complexity, some prior experience" },
+  { value: "advanced", label: "Advanced", desc: "Complex systems, advanced skills required" },
+];
+
+const categoryColors = {
+  ideas: "bg-amber-100 text-amber-700 border-amber-200",
+  components: "bg-blue-100 text-blue-700 border-blue-200",
+  planning: "bg-purple-100 text-purple-700 border-purple-200",
+  trends: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  technical: "bg-rose-100 text-rose-700 border-rose-200",
+  learning: "bg-cyan-100 text-cyan-700 border-cyan-200",
+};
+
+export default function ProjectAssistant() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [messages, setMessages] = useState([
+    { 
+      role: "assistant", 
+      content: "👋 Hi! I'm your **AI Project Assistant**. I can help you with:\n\n• 💡 **Project Ideas** - AI-powered suggestions based on your interests\n• 🔧 **Component Planning** - What you need and where to get it\n• 📋 **Task Breakdown** - Detailed project planning\n• 📚 **Technical Guidance** - Answers to your project questions\n\nHow can I help you today?" 
+    }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState(null);
+  const [showPrompts, setShowPrompts] = useState(true);
+  const [showIdeaWizard, setShowIdeaWizard] = useState(false);
+  const [ideaPreferences, setIdeaPreferences] = useState({
+    languages: [],
+    microcontroller: "any",
+    budget: "flexible",
+    complexity: "intermediate",
+    interests: ""
+  });
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const copyToClipboard = async (text, idx) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedIdx(idx);
+    toast.success("Copied to clipboard!");
+    setTimeout(() => setCopiedIdx(null), 2000);
+  };
+
+  const clearChat = () => {
+    setMessages([
+      { 
+        role: "assistant", 
+        content: "👋 Chat cleared! How can I help you with your project today?" 
+      }
+    ]);
+    setShowPrompts(true);
+    setShowIdeaWizard(false);
+  };
+
+  const toggleLanguage = (lang) => {
+    setIdeaPreferences(prev => ({
+      ...prev,
+      languages: prev.languages.includes(lang) 
+        ? prev.languages.filter(l => l !== lang)
+        : [...prev.languages, lang]
+    }));
+  };
+
+  const generateCustomIdeas = async () => {
+    const { languages, microcontroller, budget, complexity, interests } = ideaPreferences;
+    
+    const budgetInfo = budgetRanges.find(b => b.value === budget);
+    const mcInfo = microcontrollers.find(m => m.value === microcontroller);
+    
+    let prompt = `Suggest 5 innovative final-year engineering project ideas with the following constraints:\n\n`;
+    
+    if (languages.length > 0) {
+      const langLabels = languages.map(l => programmingLanguages.find(pl => pl.value === l)?.label).filter(Boolean);
+      prompt += `**Programming Languages:** ${langLabels.join(", ")}\n`;
+    }
+    
+    if (microcontroller !== "any" && microcontroller !== "none") {
+      prompt += `**Hardware Platform:** ${mcInfo?.label || microcontroller}\n`;
+    } else if (microcontroller === "none") {
+      prompt += `**Type:** Software-only projects (no hardware required)\n`;
+    }
+    
+    if (budget !== "flexible" && budgetInfo) {
+      prompt += `**Budget Constraint:** ${budgetInfo.label}\n`;
+    }
+    
+    prompt += `**Complexity Level:** ${complexity.charAt(0).toUpperCase() + complexity.slice(1)}\n`;
+    
+    if (interests.trim()) {
+      prompt += `**Areas of Interest:** ${interests}\n`;
+    }
+    
+    prompt += `\nFor each project idea, include:\n- Project title\n- Brief description\n- Key components/technologies needed\n- Estimated cost in INR\n- Time estimate\n- Learning outcomes`;
+    
+    setShowIdeaWizard(false);
+    await sendMessage(prompt);
+  };
+
+  const sendMessage = async (messageText) => {
+    if (!messageText.trim() || loading) return;
+
+    const userMessage = { role: "user", content: messageText };
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setLoading(true);
+    setShowPrompts(false);
+
+    try {
+      // Build context from previous messages
+      const conversationContext = messages.slice(-6).map(m => 
+        `${m.role === "user" ? "Student" : "Assistant"}: ${m.content}`
+      ).join("\n\n");
+
+      const response = await base44.integrations.Core.InvokeLLM({
+        prompt: `You are an expert AI Project Assistant for engineering students at I-Vender Innovation Platform. Your role is to provide helpful, practical guidance for final-year projects.
+
+CAPABILITIES:
+1. **Project Ideas**: Suggest innovative, feasible project ideas based on student interests, trending technologies, and budget constraints
+2. **Feature Brainstorming**: Help expand project scope with creative features and enhancements
+3. **Component Planning**: Recommend specific components, tools, and materials with estimated costs in INR
+4. **Task Breakdown**: Create detailed project timelines with milestones, weekly tasks, and deadlines
+5. **Technical Guidance**: Answer technical questions, explain concepts, and troubleshoot issues
+6. **Learning Resources**: Recommend tutorials, courses, and documentation
+
+GUIDELINES:
+- Be concise but thorough
+- Use markdown formatting (headers, lists, bold, code blocks)
+- Include practical examples and real-world applications
+- Mention approximate costs in INR when relevant
+- Suggest alternatives for expensive components
+- Break complex topics into digestible steps
+- Be encouraging and supportive
+
+PREVIOUS CONVERSATION:
+${conversationContext}
+
+STUDENT'S QUESTION:
+${messageText}
+
+Provide a helpful, well-structured response:`,
+        add_context_from_internet: true
+      });
+
+      setMessages(prev => [...prev, { role: "assistant", content: response }]);
+    } catch (error) {
+      setMessages(prev => [...prev, { 
+        role: "assistant", 
+        content: "😔 I encountered an error processing your request. Please try again or rephrase your question." 
+      }]);
+    }
+    setLoading(false);
+  };
+
+  const windowSize = isExpanded 
+    ? "w-[600px] max-w-[calc(100vw-2rem)] h-[80vh]" 
+    : "w-96 max-w-[calc(100vw-3rem)]";
+
+  return (
+    <>
+      {/* Floating Button */}
+      <motion.button
+        data-assistant-trigger
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setIsOpen(true)}
+        className={cn(
+          "fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full",
+          "bg-gradient-to-br from-emerald-500 to-teal-500 text-white",
+          "shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40",
+          "flex items-center justify-center transition-all duration-200",
+          isOpen && "hidden"
+        )}
+      >
+        <Bot className="h-6 w-6" />
+        <motion.span 
+          className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-400"
+          animate={{ scale: [1, 1.2, 1] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        />
+      </motion.button>
+
+      {/* Tooltip when closed */}
+      {!isOpen && (
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 2 }}
+          className="fixed bottom-8 right-24 z-40 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm shadow-lg hidden lg:block"
+        >
+          <span className="flex items-center gap-2">
+            <Zap className="h-4 w-4 text-amber-400" />
+            Need project help? Ask AI!
+          </span>
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full border-8 border-transparent border-l-slate-900" />
+        </motion.div>
+      )}
+
+      {/* Chat Window */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className={cn(
+              "fixed bottom-6 right-6 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col",
+              windowSize
+            )}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-4 text-white flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <motion.div 
+                    className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center"
+                    animate={{ rotate: [0, 5, -5, 0] }}
+                    transition={{ duration: 3, repeat: Infinity }}
+                  >
+                    <Sparkles className="h-5 w-5" />
+                  </motion.div>
+                  <div>
+                    <h3 className="font-semibold">AI Project Assistant</h3>
+                    <p className="text-xs text-emerald-100 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 bg-emerald-300 rounded-full animate-pulse" />
+                      Online • Powered by AI
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={clearChat}
+                    className="text-white/70 hover:text-white hover:bg-white/20 h-8 w-8"
+                    title="Clear chat"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-white/70 hover:text-white hover:bg-white/20 h-8 w-8"
+                    title={isExpanded ? "Minimize" : "Expand"}
+                  >
+                    {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsOpen(false)}
+                    className="text-white hover:bg-white/20 h-8 w-8"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className={cn(
+              "flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50",
+              isExpanded ? "h-auto" : "h-80"
+            )}>
+              {messages.map((msg, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "flex gap-3",
+                    msg.role === "user" && "flex-row-reverse"
+                  )}
+                >
+                  <div className={cn(
+                    "h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0",
+                    msg.role === "assistant" ? "bg-emerald-100" : "bg-slate-200"
+                  )}>
+                    {msg.role === "assistant" ? (
+                      <Bot className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <MessageCircle className="h-4 w-4 text-slate-600" />
+                    )}
+                  </div>
+                  <div className={cn(
+                    "rounded-xl p-3 max-w-[85%] text-sm relative group",
+                    msg.role === "assistant" 
+                      ? "bg-white border border-slate-200 text-slate-700" 
+                      : "bg-emerald-500 text-white"
+                  )}>
+                    {msg.role === "assistant" ? (
+                      <>
+                        <ReactMarkdown 
+                          className="prose prose-sm prose-slate max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_pre]:bg-slate-900 [&_pre]:text-slate-100 [&_pre]:p-3 [&_pre]:rounded-lg [&_code]:text-xs"
+                          components={{
+                            h1: ({children}) => <h1 className="text-base font-bold mt-3 mb-2">{children}</h1>,
+                            h2: ({children}) => <h2 className="text-sm font-bold mt-3 mb-2">{children}</h2>,
+                            h3: ({children}) => <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>,
+                            ul: ({children}) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
+                            ol: ({children}) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
+                            li: ({children}) => <li className="text-sm">{children}</li>,
+                            p: ({children}) => <p className="my-2">{children}</p>,
+                            strong: ({children}) => <strong className="font-semibold text-slate-900">{children}</strong>,
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                        <button
+                          onClick={() => copyToClipboard(msg.content, idx)}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-slate-100 hover:bg-slate-200"
+                          title="Copy response"
+                        >
+                          {copiedIdx === idx ? (
+                            <Check className="h-3 w-3 text-emerald-600" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-slate-500" />
+                          )}
+                        </button>
+                      </>
+                    ) : (
+                      msg.content
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+              
+              {loading && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex gap-3"
+                >
+                  <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 text-emerald-600 animate-spin" />
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-1">
+                        <span className="h-2 w-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="h-2 w-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <span className="h-2 w-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                      </div>
+                      <span className="text-xs text-slate-500">Thinking...</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Idea Wizard */}
+            <AnimatePresence>
+              {showIdeaWizard && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="border-t border-slate-100 bg-gradient-to-b from-amber-50 to-white overflow-hidden flex-shrink-0"
+                >
+                  <div className="p-4 space-y-4 max-h-80 overflow-y-auto">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setShowIdeaWizard(false)} className="text-slate-400 hover:text-slate-600">
+                          <ArrowLeft className="h-4 w-4" />
+                        </button>
+                        <h4 className="font-semibold text-slate-900 text-sm flex items-center gap-2">
+                          <Settings2 className="h-4 w-4 text-amber-600" />
+                          Customize Project Ideas
+                        </h4>
+                      </div>
+                    </div>
+
+                    {/* Programming Languages */}
+                    <div>
+                      <Label className="text-xs font-medium text-slate-700 mb-2 block">Programming Languages</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {programmingLanguages.map(lang => (
+                          <button
+                            key={lang.value}
+                            onClick={() => toggleLanguage(lang.value)}
+                            className={cn(
+                              "px-3 py-1.5 text-xs rounded-full border transition-all",
+                              ideaPreferences.languages.includes(lang.value)
+                                ? "bg-emerald-100 border-emerald-300 text-emerald-700"
+                                : "bg-white border-slate-200 text-slate-600 hover:border-emerald-300"
+                            )}
+                          >
+                            {lang.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Hardware & Budget Row */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs font-medium text-slate-700 mb-1.5 block">Hardware Platform</Label>
+                        <Select value={ideaPreferences.microcontroller} onValueChange={(v) => setIdeaPreferences(p => ({...p, microcontroller: v}))}>
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue placeholder="Select hardware" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {microcontrollers.map(mc => (
+                              <SelectItem key={mc.value} value={mc.value} className="text-xs">{mc.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-medium text-slate-700 mb-1.5 block flex items-center gap-1">
+                          <IndianRupee className="h-3 w-3" /> Budget Range
+                        </Label>
+                        <Select value={ideaPreferences.budget} onValueChange={(v) => setIdeaPreferences(p => ({...p, budget: v}))}>
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue placeholder="Select budget" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {budgetRanges.map(br => (
+                              <SelectItem key={br.value} value={br.value} className="text-xs">{br.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Complexity */}
+                    <div>
+                      <Label className="text-xs font-medium text-slate-700 mb-2 block">Complexity Level</Label>
+                      <div className="flex gap-2">
+                        {complexityLevels.map(level => (
+                          <button
+                            key={level.value}
+                            onClick={() => setIdeaPreferences(p => ({...p, complexity: level.value}))}
+                            className={cn(
+                              "flex-1 p-2 rounded-lg border text-center transition-all",
+                              ideaPreferences.complexity === level.value
+                                ? "bg-emerald-100 border-emerald-300"
+                                : "bg-white border-slate-200 hover:border-emerald-300"
+                            )}
+                          >
+                            <p className={cn(
+                              "text-xs font-medium",
+                              ideaPreferences.complexity === level.value ? "text-emerald-700" : "text-slate-700"
+                            )}>{level.label}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{level.desc}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Interests */}
+                    <div>
+                      <Label className="text-xs font-medium text-slate-700 mb-1.5 block">Areas of Interest (optional)</Label>
+                      <Input
+                        value={ideaPreferences.interests}
+                        onChange={(e) => setIdeaPreferences(p => ({...p, interests: e.target.value}))}
+                        placeholder="e.g., IoT, healthcare, agriculture, automation..."
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    {/* Generate Button */}
+                    <Button 
+                      onClick={generateCustomIdeas}
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                      disabled={loading}
+                    >
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                      Generate Tailored Ideas
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Quick Prompts */}
+            <AnimatePresence>
+              {showPrompts && messages.length <= 2 && !showIdeaWizard && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="border-t border-slate-100 bg-white overflow-hidden flex-shrink-0"
+                >
+                  <div className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium text-slate-500">Quick prompts:</p>
+                      <button 
+                        onClick={() => setShowPrompts(false)}
+                        className="text-slate-400 hover:text-slate-600"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {quickPrompts.map((prompt, idx) => (
+                        <motion.button
+                          key={idx}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: idx * 0.05 }}
+                          onClick={() => prompt.openWizard ? setShowIdeaWizard(true) : sendMessage(prompt.prompt)}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-all hover:scale-105",
+                            categoryColors[prompt.category]
+                          )}
+                        >
+                          <prompt.icon className="h-3 w-3" />
+                          {prompt.label}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Input */}
+            <div className="p-4 border-t border-slate-200 bg-white flex-shrink-0">
+              <form 
+                onSubmit={(e) => { e.preventDefault(); sendMessage(input); }}
+                className="flex gap-2"
+              >
+                <Input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask about project ideas, components, planning..."
+                  className="flex-1"
+                  disabled={loading}
+                />
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || loading}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-4"
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </form>
+              <p className="text-[10px] text-slate-400 mt-2 text-center">
+                AI responses may not always be accurate. Verify important information.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}

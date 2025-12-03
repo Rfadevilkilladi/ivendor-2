@@ -1,0 +1,540 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import moment from "moment";
+import {
+  Users,
+  FolderKanban,
+  Recycle,
+  AlertTriangle,
+  UserCheck,
+  ArrowRight,
+  Plus,
+  Loader2,
+  Bell,
+  BarChart3,
+  UserPlus,
+  ShoppingBag,
+  Lightbulb,
+  TrendingUp,
+  Clock,
+  CheckCircle2,
+  Package,
+  Shield,
+  Sparkles
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import UnifiedCard from "@/components/ui/UnifiedCard";
+import StatCardUnified from "@/components/ui/StatCardUnified";
+import PageHeader from "@/components/ui/PageHeader";
+import EmptyState from "@/components/ui/EmptyState";
+import ActivityItem from "@/components/ui/ActivityItem";
+import DataTable from "@/components/ui/DataTable";
+import { toast } from "sonner";
+
+export default function AdminDashboard() {
+  const [user, setUser] = useState(null);
+  const [addStudentDialog, setAddStudentDialog] = useState(false);
+  const [newStudent, setNewStudent] = useState({
+    student_id: "",
+    name: "",
+    email: "",
+    department: "Computer Science",
+    year: 1,
+    pin: ""
+  });
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ["all-projects"],
+    queryFn: () => base44.entities.Project.filter({ is_template: false }, "-created_date", 50),
+  });
+
+  const { data: reports = [] } = useQuery({
+    queryKey: ["all-reports"],
+    queryFn: () => base44.entities.CampusReport.list("-created_date", 50),
+  });
+
+  const { data: recycling = [] } = useQuery({
+    queryKey: ["all-recycling"],
+    queryFn: () => base44.entities.RecyclingTransaction.list("-created_date", 100),
+  });
+
+  const { data: attendance = [] } = useQuery({
+    queryKey: ["all-attendance"],
+    queryFn: () => base44.entities.Attendance.list("-created_date", 50),
+  });
+
+  const { data: machines = [] } = useQuery({
+    queryKey: ["vending-machines"],
+    queryFn: () => base44.entities.VendingMachine.list(),
+  });
+
+  const { data: mentorApps = [] } = useQuery({
+    queryKey: ["mentor-applications"],
+    queryFn: () => base44.entities.MentorApplication.filter({ status: "pending" }),
+  });
+
+  const { data: partApps = [] } = useQuery({
+    queryKey: ["part-applications"],
+    queryFn: () => base44.entities.Part.filter({ status: "pending" }),
+  });
+
+  const { data: ideas = [] } = useQuery({
+    queryKey: ["ideas"],
+    queryFn: () => base44.entities.Project.filter({ is_template: true }),
+  });
+
+  // Stats calculations
+  const pendingReports = reports.filter(r => r.status === "pending").length;
+  const activeProjects = projects.filter(p => p.status === "in_progress").length;
+  const completedProjects = projects.filter(p => p.status === "completed").length;
+  const todayAttendance = attendance.filter(a => 
+    new Date(a.date).toDateString() === new Date().toDateString()
+  ).length;
+  const totalRecycled = recycling.reduce((sum, r) => sum + (r.quantity || 0), 0);
+  const fullMachines = machines.filter(m => m.fill_level >= 80).length;
+  const totalAlerts = fullMachines + mentorApps.length + partApps.length;
+
+  // Recent activity
+  const recentActivity = [
+    ...reports.slice(0, 3).map(r => ({
+      icon: AlertTriangle,
+      title: r.title,
+      subtitle: `${r.type} - ${r.status}`,
+      time: r.created_date,
+      color: r.status === "pending" ? "amber" : "emerald"
+    })),
+    ...projects.slice(0, 3).map(p => ({
+      icon: FolderKanban,
+      title: p.title,
+      subtitle: `${p.department} - ${p.status?.replace("_", " ")}`,
+      time: p.created_date,
+      color: "blue"
+    })),
+  ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 6);
+
+  const handleAddStudent = () => {
+    toast.success("Student registered successfully!");
+    setAddStudentDialog(false);
+    setNewStudent({
+      student_id: "",
+      name: "",
+      email: "",
+      department: "Computer Science",
+      year: 1,
+      pin: ""
+    });
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-600 p-6 lg:p-8 text-white"
+      >
+        <div className="absolute top-0 right-0 w-80 h-80 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-purple-200 mb-2">
+              <Shield className="h-4 w-4" />
+              <span className="text-sm font-medium">Admin Dashboard</span>
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold mb-1">Welcome, Administrator</h1>
+            <p className="text-purple-200 text-sm">Manage campus operations and monitor activity</p>
+          </div>
+          <Dialog open={addStudentDialog} onOpenChange={setAddStudentDialog}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="bg-white text-purple-600 hover:bg-purple-50">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Add Student
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Register New Student</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Student ID</Label>
+                    <Input
+                      value={newStudent.student_id}
+                      onChange={(e) => setNewStudent({...newStudent, student_id: e.target.value.toUpperCase()})}
+                      placeholder="STU2024XXX"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>6-Digit PIN</Label>
+                    <Input
+                      value={newStudent.pin}
+                      onChange={(e) => setNewStudent({...newStudent, pin: e.target.value.replace(/\D/g, "").slice(0, 6)})}
+                      placeholder="123456"
+                      maxLength={6}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Full Name</Label>
+                  <Input
+                    value={newStudent.name}
+                    onChange={(e) => setNewStudent({...newStudent, name: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={newStudent.email}
+                    onChange={(e) => setNewStudent({...newStudent, email: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Department</Label>
+                    <Select value={newStudent.department} onValueChange={(v) => setNewStudent({...newStudent, department: v})}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Mechanical">Mechanical</SelectItem>
+                        <SelectItem value="Civil">Civil</SelectItem>
+                        <SelectItem value="Electrical">Electrical</SelectItem>
+                        <SelectItem value="Computer Science">Computer Science</SelectItem>
+                        <SelectItem value="Electronics">Electronics</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Year</Label>
+                    <Select value={String(newStudent.year)} onValueChange={(v) => setNewStudent({...newStudent, year: parseInt(v)})}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1st Year</SelectItem>
+                        <SelectItem value="2">2nd Year</SelectItem>
+                        <SelectItem value="3">3rd Year</SelectItem>
+                        <SelectItem value="4">4th Year</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button onClick={handleAddStudent} className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Register Student
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </motion.div>
+
+      {/* Alerts Section */}
+      {totalAlerts > 0 && (
+        <motion.div 
+          className="grid md:grid-cols-3 gap-4"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {fullMachines > 0 && (
+            <Link to={createPageUrl("AdminUsageReports")}>
+              <UnifiedCard className="border-l-4 border-l-red-500 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer" padding="p-4">
+                <div className="flex items-center gap-3">
+                  <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1, repeat: Infinity }}>
+                    <Bell className="h-5 w-5 text-red-500" />
+                  </motion.div>
+                  <div>
+                    <p className="font-medium text-red-800 text-sm">Machine Alert</p>
+                    <p className="text-xs text-red-600">{fullMachines} machine(s) nearly full</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-red-400 ml-auto" />
+                </div>
+              </UnifiedCard>
+            </Link>
+          )}
+          {mentorApps.length > 0 && (
+            <Link to={createPageUrl("AdminApprovals")}>
+              <UnifiedCard className="border-l-4 border-l-blue-500 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer" padding="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Users className="h-5 w-5 text-blue-500" />
+                    <div>
+                      <p className="font-medium text-blue-800 text-sm">Mentor Applications</p>
+                      <p className="text-xs text-blue-600">{mentorApps.length} pending review</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-blue-400" />
+                </div>
+              </UnifiedCard>
+            </Link>
+          )}
+          {partApps.length > 0 && (
+            <Link to={createPageUrl("AdminApprovals")}>
+              <UnifiedCard className="border-l-4 border-l-purple-500 bg-purple-50 hover:bg-purple-100 transition-colors cursor-pointer" padding="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Package className="h-5 w-5 text-purple-500" />
+                    <div>
+                      <p className="font-medium text-purple-800 text-sm">Product Listings</p>
+                      <p className="text-xs text-purple-600">{partApps.length} pending review</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-purple-400" />
+                </div>
+              </UnifiedCard>
+            </Link>
+          )}
+        </motion.div>
+      )}
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCardUnified
+          icon={AlertTriangle}
+          label="Pending Reports"
+          value={pendingReports}
+          trendLabel={`${reports.length} total`}
+          color="rose"
+        />
+        <StatCardUnified
+          icon={FolderKanban}
+          label="Active Projects"
+          value={activeProjects}
+          trendLabel={`${completedProjects} completed`}
+          color="blue"
+        />
+        <StatCardUnified
+          icon={UserCheck}
+          label="Today's Attendance"
+          value={todayAttendance}
+          color="emerald"
+        />
+        <StatCardUnified
+          icon={Lightbulb}
+          label="Ideas Available"
+          value={ideas.length}
+          color="amber"
+        />
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Recent Activity */}
+        <UnifiedCard className="lg:col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900">Recent Activity</h3>
+            <Clock className="h-4 w-4 text-slate-400" />
+          </div>
+          {recentActivity.length === 0 ? (
+            <EmptyState
+              icon={Clock}
+              title="No recent activity"
+              description="Activity will appear here"
+              className="py-6"
+            />
+          ) : (
+            <div className="space-y-1">
+              {recentActivity.map((activity, idx) => (
+                <ActivityItem
+                  key={idx}
+                  icon={activity.icon}
+                  title={activity.title}
+                  subtitle={activity.subtitle}
+                  time={activity.time}
+                  iconColor={activity.color}
+                />
+              ))}
+            </div>
+          )}
+        </UnifiedCard>
+
+        {/* Pending Reports */}
+        <UnifiedCard>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-rose-500" />
+              Pending Reports
+            </h3>
+            <Link to={createPageUrl("AdminReports")}>
+              <Button variant="ghost" size="sm" className="text-xs">View All</Button>
+            </Link>
+          </div>
+          {reports.filter(r => r.status === "pending").length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="All clear!"
+              description="No pending reports to review"
+              className="py-6"
+            />
+          ) : (
+            <div className="space-y-3">
+              {reports.filter(r => r.status === "pending").slice(0, 4).map((report) => (
+                <div key={report.id} className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-slate-900 text-sm">{report.title}</p>
+                      <p className="text-xs text-slate-500">{report.location}</p>
+                    </div>
+                    <Badge className="bg-amber-100 text-amber-700 text-xs">
+                      {report.priority || "medium"}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </UnifiedCard>
+
+        {/* Active Projects */}
+        <UnifiedCard>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+              <FolderKanban className="h-4 w-4 text-blue-500" />
+              Active Projects
+            </h3>
+            <Link to={createPageUrl("AdminProjects")}>
+              <Button variant="ghost" size="sm" className="text-xs">View All</Button>
+            </Link>
+          </div>
+          {activeProjects === 0 ? (
+            <EmptyState
+              icon={FolderKanban}
+              title="No active projects"
+              description="Projects will appear here"
+              className="py-6"
+            />
+          ) : (
+            <div className="space-y-3">
+              {projects.filter(p => p.status === "in_progress").slice(0, 4).map((project) => (
+                <div key={project.id} className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-medium text-slate-900 text-sm">{project.title}</p>
+                      <p className="text-xs text-slate-500">{project.department}</p>
+                    </div>
+                    <span className="text-xs font-medium text-blue-600">{project.progress || 0}%</span>
+                  </div>
+                  <Progress value={project.progress || 0} className="h-1.5" />
+                </div>
+              ))}
+            </div>
+          )}
+        </UnifiedCard>
+      </div>
+
+      {/* Quick Actions */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">Quick Actions</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          {[
+            { icon: CheckCircle2, title: "Approvals", desc: "Review applications", page: "AdminApprovals", color: "purple", badge: mentorApps.length + partApps.length },
+            { icon: AlertTriangle, title: "Manage Reports", desc: "Review campus issues", page: "AdminReports", color: "rose" },
+            { icon: FolderKanban, title: "Project Overview", desc: "Approve milestones", page: "AdminProjects", color: "blue" },
+            { icon: UserCheck, title: "Attendance Log", desc: "View records", page: "AdminAttendance", color: "emerald" },
+            { icon: BarChart3, title: "Usage Reports", desc: "Analytics & stats", page: "AdminUsageReports", color: "amber" },
+          ].map((action, idx) => (
+            <Link key={idx} to={createPageUrl(action.page)}>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <UnifiedCard className="h-full group cursor-pointer relative" padding="p-5">
+                  {action.badge > 0 && (
+                    <span className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-bold">
+                      {action.badge}
+                    </span>
+                  )}
+                  <div className={`h-10 w-10 rounded-lg bg-${action.color}-100 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                    <action.icon className={`h-5 w-5 text-${action.color}-600`} />
+                  </div>
+                  <h3 className="font-semibold text-slate-900 text-sm">{action.title}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{action.desc}</p>
+                </UnifiedCard>
+              </motion.div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Vending Machines Status */}
+      <UnifiedCard>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+            <Recycle className="h-4 w-4 text-emerald-500" />
+            Vending Machine Status
+          </h3>
+        </div>
+        {machines.length === 0 ? (
+          <EmptyState
+            icon={Recycle}
+            title="No machines registered"
+            description="Add vending machines to monitor them"
+            className="py-6"
+          />
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {machines.map((machine) => (
+              <div key={machine.id} className="p-4 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-medium text-slate-900 text-sm">{machine.location}</p>
+                  <Badge className={`text-xs ${
+                    machine.fill_level >= 90 ? "bg-red-100 text-red-700" :
+                    machine.fill_level >= 70 ? "bg-amber-100 text-amber-700" :
+                    "bg-emerald-100 text-emerald-700"
+                  }`}>
+                    {machine.fill_level}% full
+                  </Badge>
+                </div>
+                <Progress 
+                  value={machine.fill_level} 
+                  className={`h-2 ${
+                    machine.fill_level >= 90 ? "[&>div]:bg-red-500" :
+                    machine.fill_level >= 70 ? "[&>div]:bg-amber-500" :
+                    "[&>div]:bg-emerald-500"
+                  }`}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  {machine.total_items_collected || 0} items collected
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </UnifiedCard>
+    </div>
+  );
+}

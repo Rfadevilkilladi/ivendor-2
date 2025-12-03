@@ -1,0 +1,166 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import moment from "moment";
+import {
+  AlertTriangle,
+  MapPin,
+  Clock,
+  CheckCircle2,
+  Wrench,
+  Loader2,
+  Filter,
+  Search
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import GlassCard from "@/components/ui/GlassCard";
+
+const statusConfig = {
+  pending: { label: "Pending", color: "bg-amber-100 text-amber-700" },
+  in_progress: { label: "In Progress", color: "bg-blue-100 text-blue-700" },
+  resolved: { label: "Resolved", color: "bg-emerald-100 text-emerald-700" }
+};
+
+export default function AdminReports() {
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selectedReport, setSelectedReport] = useState(null);
+  const queryClient = useQueryClient();
+
+  const { data: reports = [], isLoading } = useQuery({
+    queryKey: ["all-reports"],
+    queryFn: () => base44.entities.CampusReport.list("-created_date"),
+  });
+
+  const updateReportMutation = useMutation({
+    mutationFn: ({ id, status }) => base44.entities.CampusReport.update(id, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all-reports"] });
+      setSelectedReport(null);
+    },
+  });
+
+  const filteredReports = reports.filter(r => {
+    const matchesFilter = filter === "all" || r.status === filter;
+    const matchesSearch = r.title?.toLowerCase().includes(search.toLowerCase()) ||
+                          r.location?.toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Campus Reports</h1>
+          <p className="text-slate-500">Manage and resolve student reports</p>
+        </div>
+        <Badge className="bg-rose-100 text-rose-700">
+          {reports.filter(r => r.status === "pending").length} Pending
+        </Badge>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search reports..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={filter} onValueChange={setFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="resolved">Resolved</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Reports List */}
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-rose-500" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <AnimatePresence>
+            {filteredReports.map((report, idx) => (
+              <motion.div
+                key={report.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <GlassCard className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="font-semibold text-slate-900">{report.title}</h3>
+                        <Badge className={statusConfig[report.status]?.color}>
+                          {statusConfig[report.status]?.label}
+                        </Badge>
+                        <Badge className="bg-slate-100 text-slate-600">{report.type}</Badge>
+                      </div>
+                      <p className="text-sm text-slate-600 mb-2">{report.description}</p>
+                      <div className="flex items-center gap-4 text-sm text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> {report.location}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" /> {moment(report.created_date).fromNow()}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {report.status === "pending" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateReportMutation.mutate({ id: report.id, status: "in_progress" })}
+                        >
+                          <Wrench className="h-4 w-4 mr-1" /> Start
+                        </Button>
+                      )}
+                      {report.status === "in_progress" && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                          onClick={() => updateReportMutation.mutate({ id: report.id, status: "resolved" })}
+                        >
+                          <CheckCircle2 className="h-4 w-4 mr-1" /> Resolve
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+}

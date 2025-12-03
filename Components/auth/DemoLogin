@@ -1,0 +1,493 @@
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Lightbulb, User, Shield, Loader2, GraduationCap, Building, Users, Lock, Smartphone, CreditCard, Fingerprint, Eye, EyeOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import GlassCard from "@/components/ui/GlassCard";
+
+// Demo credentials for testing
+const DEMO_CREDENTIALS = {
+  student: {
+    student_id: "STU2024001",
+    pin: "123456",
+    name: "Rahul Sharma",
+    email: "rahul.sharma@ivender.edu",
+    department: "Computer Science",
+    year: 3,
+    total_points: 250,
+    user_type: "student",
+    has_paid_access: true,
+    is_verified: true
+  },
+  admin: {
+    email: "admin@ivender.edu",
+    password: "admin123",
+    phone: "9876543210",
+    name: "Admin User",
+    user_type: "admin",
+    is_verified: true,
+    two_factor_enabled: false
+  },
+  alumni: {
+    email: "priya.alumni@gmail.com",
+    password: "alumni123",
+    phone: "9876543211",
+    name: "Priya Patel",
+    user_type: "alumni",
+    is_verified: true,
+    graduation_year: 2020,
+    company_name: "Tech Solutions Ltd",
+    expertise: ["IoT", "Embedded Systems"],
+    mentorship_earnings: 15000
+  },
+  company: {
+    email: "store@techparts.in",
+    password: "company123",
+    phone: "9876543212",
+    name: "TechParts Store",
+    user_type: "company",
+    is_verified: true,
+    company_name: "TechParts India Pvt Ltd"
+  }
+};
+
+export default function DemoLogin({ onLogin }) {
+  const [activeTab, setActiveTab] = useState("student");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [otpTimer, setOtpTimer] = useState(0);
+  const [resendCount, setResendCount] = useState(0);
+
+  // Student login state
+  const [studentId, setStudentId] = useState("");
+  const [pin, setPin] = useState("");
+  const [loginMethod, setLoginMethod] = useState("pin"); // pin or rfid
+
+  // Admin/Alumni/Company login state
+  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMethod, setAuthMethod] = useState("password"); // password or otp
+
+  // OTP timer
+  useEffect(() => {
+    if (otpTimer > 0) {
+      const timer = setTimeout(() => setOtpTimer(otpTimer - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpTimer]);
+
+  const handleSendOTP = async () => {
+    if (resendCount >= 3) {
+      setError("Maximum OTP resend limit reached. Please try again later.");
+      return;
+    }
+    setLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    setOtpSent(true);
+    setOtpTimer(120); // 2 minutes
+    setResendCount(prev => prev + 1);
+    setLoading(false);
+    setOtp("123456"); // Auto-fill for demo
+  };
+
+  const handleStudentLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    const creds = DEMO_CREDENTIALS.student;
+    
+    if (loginMethod === "rfid") {
+      // Simulate RFID scan
+      onLogin(creds);
+    } else {
+      if (studentId === creds.student_id && pin === creds.pin) {
+        onLogin(creds);
+      } else {
+        setError("Invalid Student ID or PIN. Use demo credentials.");
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleOtherLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    const creds = DEMO_CREDENTIALS[activeTab];
+    
+    if (authMethod === "otp") {
+      if (otp === "123456") {
+        onLogin(creds);
+      } else {
+        setError("Invalid OTP. Use 123456 for demo.");
+      }
+    } else {
+      if ((emailOrPhone === creds.email || emailOrPhone === creds.phone) && password === creds.password) {
+        onLogin(creds);
+      } else {
+        setError("Invalid credentials. Use demo credentials below.");
+      }
+    }
+    setLoading(false);
+  };
+
+  const fillDemoCredentials = () => {
+    const creds = DEMO_CREDENTIALS[activeTab];
+    if (activeTab === "student") {
+      setStudentId(creds.student_id);
+      setPin(creds.pin);
+    } else {
+      setEmailOrPhone(creds.email);
+      setPassword(creds.password);
+    }
+  };
+
+  const resetForm = () => {
+    setStudentId("");
+    setPin("");
+    setEmailOrPhone("");
+    setPassword("");
+    setOtp("");
+    setOtpSent(false);
+    setError("");
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md"
+      >
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
+            <Lightbulb className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">I-Vendor</h1>
+          <p className="text-slate-500">Innovation on Demand</p>
+        </div>
+
+        <GlassCard className="p-6">
+          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); resetForm(); }}>
+            <TabsList className="grid grid-cols-4 mb-6">
+              <TabsTrigger value="student" className="text-xs">
+                <GraduationCap className="h-3 w-3 mr-1" />
+                Student
+              </TabsTrigger>
+              <TabsTrigger value="admin" className="text-xs">
+                <Shield className="h-3 w-3 mr-1" />
+                Admin
+              </TabsTrigger>
+              <TabsTrigger value="alumni" className="text-xs">
+                <Users className="h-3 w-3 mr-1" />
+                Alumni
+              </TabsTrigger>
+              <TabsTrigger value="company" className="text-xs">
+                <Building className="h-3 w-3 mr-1" />
+                Store
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Student Login */}
+            <TabsContent value="student">
+              <form onSubmit={handleStudentLogin} className="space-y-4">
+                {/* Login Method Toggle */}
+                <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setLoginMethod("pin")}
+                    className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                      loginMethod === "pin" ? "bg-white shadow text-emerald-600" : "text-slate-600"
+                    }`}
+                  >
+                    <Lock className="h-4 w-4 inline mr-1" />
+                    ID + PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoginMethod("rfid")}
+                    className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                      loginMethod === "rfid" ? "bg-white shadow text-emerald-600" : "text-slate-600"
+                    }`}
+                  >
+                    <CreditCard className="h-4 w-4 inline mr-1" />
+                    RFID Card
+                  </button>
+                </div>
+
+                {loginMethod === "pin" ? (
+                  <>
+                    <div>
+                      <Label htmlFor="studentId">Student ID</Label>
+                      <Input
+                        id="studentId"
+                        value={studentId}
+                        onChange={(e) => setStudentId(e.target.value.toUpperCase())}
+                        placeholder="STU2024001"
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="pin">6-Digit PIN</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          id="pin"
+                          type={showPassword ? "text" : "password"}
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          placeholder="••••••"
+                          maxLength={6}
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4 animate-pulse">
+                      <CreditCard className="h-10 w-10 text-emerald-600" />
+                    </div>
+                    <p className="text-slate-600 font-medium">Tap your ID Card</p>
+                    <p className="text-sm text-slate-500 mt-1">Place your RFID card on the reader</p>
+                    <Button
+                      type="button"
+                      onClick={() => onLogin(DEMO_CREDENTIALS.student)}
+                      variant="outline"
+                      className="mt-4"
+                    >
+                      Simulate RFID Scan (Demo)
+                    </Button>
+                  </div>
+                )}
+
+                {error && (
+                  <p className="text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>
+                )}
+
+                {loginMethod === "pin" && (
+                  <Button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <GraduationCap className="h-4 w-4 mr-2" />}
+                    Sign in as Student
+                  </Button>
+                )}
+
+                <button type="button" className="w-full text-sm text-amber-600 hover:underline">
+                  Forgot PIN? Request Reset
+                </button>
+              </form>
+            </TabsContent>
+
+            {/* Admin/Alumni/Company Login */}
+            {["admin", "alumni", "company"].map((role) => (
+              <TabsContent key={role} value={role}>
+                <form onSubmit={handleOtherLogin} className="space-y-4">
+                  {/* Auth Method Toggle */}
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => { setAuthMethod("password"); setOtpSent(false); }}
+                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                        authMethod === "password" ? "bg-white shadow text-emerald-600" : "text-slate-600"
+                      }`}
+                    >
+                      <Lock className="h-4 w-4 inline mr-1" />
+                      Password
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuthMethod("otp")}
+                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                        authMethod === "otp" ? "bg-white shadow text-emerald-600" : "text-slate-600"
+                      }`}
+                    >
+                      <Smartphone className="h-4 w-4 inline mr-1" />
+                      OTP
+                    </button>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="emailOrPhone">Email or Mobile</Label>
+                    <Input
+                      id="emailOrPhone"
+                      value={emailOrPhone}
+                      onChange={(e) => setEmailOrPhone(e.target.value)}
+                      placeholder="email@example.com or 9876543210"
+                      className="mt-1"
+                      required
+                    />
+                  </div>
+
+                  {authMethod === "password" ? (
+                    <div>
+                      <Label htmlFor="password">Password</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {!otpSent ? (
+                        <Button
+                          type="button"
+                          onClick={handleSendOTP}
+                          disabled={loading || !emailOrPhone}
+                          className="w-full"
+                          variant="outline"
+                        >
+                          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Smartphone className="h-4 w-4 mr-2" />}
+                          Send OTP
+                        </Button>
+                      ) : (
+                        <>
+                          <Label htmlFor="otp">Enter OTP</Label>
+                          <Input
+                            id="otp"
+                            value={otp}
+                            onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            placeholder="123456"
+                            maxLength={6}
+                            className="mt-1"
+                            required
+                          />
+                          <div className="flex items-center justify-between mt-2 text-sm">
+                            <span className="text-slate-500">
+                              {otpTimer > 0 ? `Expires in ${Math.floor(otpTimer / 60)}:${(otpTimer % 60).toString().padStart(2, "0")}` : "OTP expired"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleSendOTP}
+                              disabled={otpTimer > 0 || resendCount >= 3}
+                              className="text-emerald-600 hover:underline disabled:text-slate-400"
+                            >
+                              Resend ({3 - resendCount} left)
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {role === "admin" && authMethod === "password" && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-purple-50 border border-purple-100">
+                      <Fingerprint className="h-5 w-5 text-purple-600" />
+                      <span className="text-sm text-purple-700">2FA available for enhanced security</span>
+                    </div>
+                  )}
+
+                  {(role === "alumni" || role === "company") && (
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-100 text-sm text-amber-700">
+                      ⚠️ {role === "alumni" ? "Alumni" : "Company"} accounts require verification before full access
+                    </div>
+                  )}
+
+                  {error && (
+                    <p className="text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={loading || (authMethod === "otp" && !otpSent)}
+                    className={`w-full text-white ${
+                      role === "admin" ? "bg-gradient-to-r from-purple-500 to-indigo-500" :
+                      role === "alumni" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
+                      "bg-gradient-to-r from-amber-500 to-orange-500"
+                    }`}
+                  >
+                    {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                    Sign in as {role.charAt(0).toUpperCase() + role.slice(1)}
+                  </Button>
+                </form>
+              </TabsContent>
+            ))}
+          </Tabs>
+
+          {/* Demo Credentials Box - HIGHLIGHTED */}
+          <motion.div 
+            className="mt-6 p-5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg"
+            animate={{ scale: [1, 1.01, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <p className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+              <span className="text-2xl">🔑</span> Quick Demo Access
+            </p>
+            <div className="text-white/90 space-y-1">
+              {activeTab === "student" ? (
+                <p className="text-lg">
+                  <strong>ID:</strong> {DEMO_CREDENTIALS.student.student_id} — <strong>PIN:</strong> {DEMO_CREDENTIALS.student.pin}
+                </p>
+              ) : (
+                <>
+                  <p><strong>Email:</strong> {DEMO_CREDENTIALS[activeTab].email}</p>
+                  <p><strong>Password:</strong> {DEMO_CREDENTIALS[activeTab].password}</p>
+                </>
+              )}
+            </div>
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => {
+                fillDemoCredentials();
+                // Auto-submit after filling
+                setTimeout(() => {
+                  if (activeTab === "student") {
+                    onLogin(DEMO_CREDENTIALS.student);
+                  } else {
+                    onLogin(DEMO_CREDENTIALS[activeTab]);
+                  }
+                }, 300);
+              }}
+              className="mt-4 w-full h-12 bg-white text-amber-600 hover:bg-amber-50 font-bold text-base"
+            >
+              Use Demo & Sign In
+            </Button>
+          </motion.div>
+
+          {/* Privacy Note */}
+          <p className="text-center text-xs text-slate-400 mt-4">
+            Demo only. No personal data will be stored.
+          </p>
+        </GlassCard>
+
+
+      </motion.div>
+    </div>
+  );
+}

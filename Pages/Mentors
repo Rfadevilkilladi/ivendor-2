@@ -1,0 +1,308 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Users,
+  Search,
+  Star,
+  Briefcase,
+  GraduationCap,
+  MessageCircle,
+  Linkedin,
+  Filter,
+  Check,
+  Loader2
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import GlassCard from "@/components/ui/GlassCard";
+
+const roles = ["Alumni", "Professor", "Industry Expert"];
+const expertiseAreas = ["IoT", "AI/ML", "Robotics", "Web Development", "Data Science", "Embedded Systems", "Cloud Computing"];
+
+export default function Mentors() {
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [expertiseFilter, setExpertiseFilter] = useState("all");
+  const [selectedMentor, setSelectedMentor] = useState(null);
+
+  const { data: mentors = [], isLoading } = useQuery({
+    queryKey: ["mentors"],
+    queryFn: () => base44.entities.Mentor.list(),
+  });
+
+  const filteredMentors = mentors.filter(mentor => {
+    const matchesSearch = mentor.name?.toLowerCase().includes(search.toLowerCase()) ||
+                          mentor.company?.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = roleFilter === "all" || mentor.role === roleFilter;
+    const matchesExpertise = expertiseFilter === "all" || 
+                             mentor.expertise?.includes(expertiseFilter);
+    return matchesSearch && matchesRole && matchesExpertise;
+  });
+
+  const roleColors = {
+    Alumni: "bg-indigo-100 text-indigo-700",
+    Professor: "bg-purple-100 text-purple-700",
+    "Industry Expert": "bg-emerald-100 text-emerald-700"
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+            <Users className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Mentor Network</h1>
+        </div>
+        <p className="text-slate-500">Connect with alumni, professors, and industry experts</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-slate-900">{mentors.length}</p>
+          <p className="text-sm text-slate-500">Total Mentors</p>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-emerald-600">
+            {mentors.filter(m => m.available).length}
+          </p>
+          <p className="text-sm text-slate-500">Available Now</p>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-amber-600">
+            {mentors.reduce((sum, m) => sum + (m.projects_mentored || 0), 0)}
+          </p>
+          <p className="text-sm text-slate-500">Projects Mentored</p>
+        </GlassCard>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search mentors..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Role" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Roles</SelectItem>
+            {roles.map((role) => (
+              <SelectItem key={role} value={role}>{role}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={expertiseFilter} onValueChange={setExpertiseFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Expertise" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Expertise</SelectItem>
+            {expertiseAreas.map((exp) => (
+              <SelectItem key={exp} value={exp}>{exp}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Mentors Grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      ) : filteredMentors.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <Users className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900 mb-2">No Mentors Found</h3>
+          <p className="text-slate-500">Try adjusting your filters</p>
+        </GlassCard>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <AnimatePresence mode="popLayout">
+            {filteredMentors.map((mentor, idx) => (
+              <motion.div
+                key={mentor.id}
+                layout
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <GlassCard 
+                  className="p-6 cursor-pointer group"
+                  onClick={() => setSelectedMentor(mentor)}
+                >
+                  <div className="flex items-start gap-4 mb-4">
+                    <Avatar className="h-14 w-14 ring-2 ring-white shadow-lg">
+                      <AvatarImage src={mentor.avatar_url} />
+                      <AvatarFallback className="bg-gradient-to-br from-blue-400 to-indigo-500 text-white text-lg">
+                        {mentor.name?.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+                          {mentor.name}
+                        </h3>
+                        {mentor.available && (
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </div>
+                      <Badge className={roleColors[mentor.role]}>
+                        {mentor.role}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <Briefcase className="h-4 w-4 text-slate-400" />
+                      <span className="truncate">{mentor.company || "Independent"}</span>
+                    </div>
+                    {mentor.graduation_year && (
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <GraduationCap className="h-4 w-4 text-slate-400" />
+                        <span>Class of {mentor.graduation_year}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {mentor.expertise?.slice(0, 3).map((skill, i) => (
+                      <span key={i} className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <div className="flex items-center gap-1">
+                      <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
+                      <span className="font-medium text-slate-900">{mentor.rating || 5.0}</span>
+                    </div>
+                    <p className="text-sm text-slate-500">
+                      {mentor.projects_mentored || 0} projects
+                    </p>
+                  </div>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Mentor Detail Dialog */}
+      <Dialog open={!!selectedMentor} onOpenChange={() => setSelectedMentor(null)}>
+        <DialogContent className="max-w-lg">
+          {selectedMentor && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-16 w-16 ring-2 ring-white shadow-lg">
+                    <AvatarImage src={selectedMentor.avatar_url} />
+                    <AvatarFallback className="bg-gradient-to-br from-blue-400 to-indigo-500 text-white text-xl">
+                      {selectedMentor.name?.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <DialogTitle className="text-xl">{selectedMentor.name}</DialogTitle>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge className={roleColors[selectedMentor.role]}>
+                        {selectedMentor.role}
+                      </Badge>
+                      {selectedMentor.available && (
+                        <span className="text-xs text-emerald-600 flex items-center gap-1">
+                          <Check className="h-3 w-3" /> Available
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="space-y-5 mt-4">
+                {selectedMentor.bio && (
+                  <p className="text-slate-600">{selectedMentor.bio}</p>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <p className="text-sm text-slate-500">Company</p>
+                    <p className="font-medium text-slate-900">{selectedMentor.company || "Independent"}</p>
+                  </div>
+                  {selectedMentor.graduation_year && (
+                    <div className="p-3 rounded-xl bg-slate-50">
+                      <p className="text-sm text-slate-500">Graduated</p>
+                      <p className="font-medium text-slate-900">{selectedMentor.graduation_year}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-slate-900 mb-2">Expertise</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedMentor.expertise?.map((skill, i) => (
+                      <span key={i} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-xl bg-amber-50 border border-amber-100">
+                  <div>
+                    <p className="text-sm text-amber-700">Projects Mentored</p>
+                    <p className="text-2xl font-bold text-amber-800">{selectedMentor.projects_mentored || 0}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Star className="h-6 w-6 text-amber-400 fill-amber-400" />
+                    <span className="text-2xl font-bold text-amber-800">{selectedMentor.rating || 5.0}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <Button className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-500 text-white">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Request Mentorship
+                  </Button>
+                  {selectedMentor.linkedin_url && (
+                    <Button variant="outline" asChild>
+                      <a href={selectedMentor.linkedin_url} target="_blank" rel="noopener noreferrer">
+                        <Linkedin className="h-4 w-4" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

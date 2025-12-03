@@ -1,0 +1,362 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  AlertTriangle,
+  MapPin,
+  Camera,
+  Plus,
+  Loader2,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Wrench,
+  Lightbulb,
+  Trash2,
+  Siren
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import GlassCard from "@/components/ui/GlassCard";
+
+const reportTypes = [
+  { value: "cleanliness", label: "Cleanliness Issue", icon: Trash2, color: "bg-amber-500" },
+  { value: "maintenance", label: "Maintenance Request", icon: Wrench, color: "bg-blue-500" },
+  { value: "emergency", label: "Emergency Alert", icon: Siren, color: "bg-red-500" },
+  { value: "suggestion", label: "Suggestion", icon: Lightbulb, color: "bg-purple-500" }
+];
+
+const locations = [
+  "Main Building - Ground Floor",
+  "Main Building - 1st Floor",
+  "Main Building - 2nd Floor",
+  "Library",
+  "Cafeteria",
+  "Engineering Block A",
+  "Engineering Block B",
+  "Sports Complex",
+  "Parking Lot",
+  "Garden Area",
+  "Restrooms - Main",
+  "Computer Lab",
+  "Other"
+];
+
+const priorityColors = {
+  low: "bg-slate-100 text-slate-700",
+  medium: "bg-amber-100 text-amber-700",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700"
+};
+
+const statusConfig = {
+  pending: { label: "Pending", color: "bg-slate-100 text-slate-700", icon: Clock },
+  in_progress: { label: "In Progress", color: "bg-blue-100 text-blue-700", icon: Wrench },
+  resolved: { label: "Resolved", color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2 }
+};
+
+export default function CampusReports() {
+  const [user, setUser] = useState(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("all");
+  const [newReport, setNewReport] = useState({
+    type: "cleanliness",
+    title: "",
+    description: "",
+    location: "",
+    priority: "medium"
+  });
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    base44.auth.me().then(setUser).catch(() => {});
+  }, []);
+
+  const { data: reports = [], isLoading } = useQuery({
+    queryKey: ["campus-reports"],
+    queryFn: () => base44.entities.CampusReport.list("-created_date"),
+  });
+
+  const { data: myReports = [] } = useQuery({
+    queryKey: ["my-reports", user?.email],
+    queryFn: () => base44.entities.CampusReport.filter({ reporter_email: user?.email }),
+    enabled: !!user?.email,
+  });
+
+  const createReportMutation = useMutation({
+    mutationFn: async (data) => {
+      await base44.entities.CampusReport.create({
+        ...data,
+        reporter_email: user?.email,
+        status: "pending",
+        points_awarded: data.type === "emergency" ? 20 : 10
+      });
+
+      // Award points for reporting
+      await base44.auth.updateMe({
+        total_points: (user?.total_points || 0) + (data.type === "emergency" ? 20 : 10),
+        reports_submitted: (user?.reports_submitted || 0) + 1
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campus-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["my-reports"] });
+      base44.auth.me().then(setUser);
+      setAddDialogOpen(false);
+      setNewReport({
+        type: "cleanliness",
+        title: "",
+        description: "",
+        location: "",
+        priority: "medium"
+      });
+    },
+  });
+
+  const filteredReports = activeTab === "my" 
+    ? myReports 
+    : activeTab === "all" 
+      ? reports 
+      : reports.filter(r => r.type === activeTab);
+
+  const pendingCount = reports.filter(r => r.status === "pending").length;
+  const resolvedCount = reports.filter(r => r.status === "resolved").length;
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center">
+              <AlertTriangle className="h-5 w-5 text-white" />
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Campus Reports</h1>
+          </div>
+          <p className="text-slate-500">Report issues, suggest improvements, earn points</p>
+        </div>
+        <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-500/30">
+              <Plus className="h-4 w-4 mr-2" />
+              New Report
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Submit Campus Report</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              <div>
+                <Label>Report Type</Label>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {reportTypes.map((type) => {
+                    const Icon = type.icon;
+                    return (
+                      <button
+                        key={type.value}
+                        onClick={() => setNewReport({...newReport, type: type.value})}
+                        className={`p-3 rounded-xl border-2 transition-all text-left ${
+                          newReport.type === type.value
+                            ? "border-emerald-500 bg-emerald-50"
+                            : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className={`h-8 w-8 rounded-lg ${type.color} flex items-center justify-center mb-2`}>
+                          <Icon className="h-4 w-4 text-white" />
+                        </div>
+                        <p className="font-medium text-sm text-slate-900">{type.label}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <Label>Title</Label>
+                <Input
+                  value={newReport.title}
+                  onChange={(e) => setNewReport({...newReport, title: e.target.value})}
+                  placeholder="Brief description of the issue"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Location</Label>
+                <Select 
+                  value={newReport.location} 
+                  onValueChange={(v) => setNewReport({...newReport, location: v})}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map((loc) => (
+                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Textarea
+                  value={newReport.description}
+                  onChange={(e) => setNewReport({...newReport, description: e.target.value})}
+                  placeholder="Provide more details..."
+                  className="mt-1 min-h-[100px]"
+                />
+              </div>
+              <div>
+                <Label>Priority</Label>
+                <Select 
+                  value={newReport.priority} 
+                  onValueChange={(v) => setNewReport({...newReport, priority: v})}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                <p className="text-sm text-emerald-700">Points you'll earn for this report:</p>
+                <p className="text-xl font-bold text-emerald-700">
+                  +{newReport.type === "emergency" ? 20 : 10} pts
+                </p>
+              </div>
+              <Button
+                onClick={() => createReportMutation.mutate(newReport)}
+                disabled={createReportMutation.isPending || !newReport.title || !newReport.location}
+                className="w-full bg-gradient-to-r from-rose-500 to-pink-500 text-white"
+              >
+                {createReportMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Submit Report
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-slate-900">{reports.length}</p>
+          <p className="text-sm text-slate-500">Total Reports</p>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-amber-600">{pendingCount}</p>
+          <p className="text-sm text-slate-500">Pending</p>
+        </GlassCard>
+        <GlassCard className="p-4 text-center">
+          <p className="text-3xl font-bold text-emerald-600">{resolvedCount}</p>
+          <p className="text-sm text-slate-500">Resolved</p>
+        </GlassCard>
+      </div>
+
+      {/* Tabs & Reports List */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="bg-white/50 border">
+          <TabsTrigger value="all">All Reports</TabsTrigger>
+          <TabsTrigger value="my">My Reports</TabsTrigger>
+          <TabsTrigger value="cleanliness">Cleanliness</TabsTrigger>
+          <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
+          <TabsTrigger value="emergency">Emergency</TabsTrigger>
+        </TabsList>
+
+        <div className="mt-6">
+          {isLoading ? (
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-8 w-8 animate-spin text-rose-500" />
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <GlassCard className="p-12 text-center">
+              <AlertTriangle className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">No Reports Found</h3>
+              <p className="text-slate-500">Be the first to report an issue</p>
+            </GlassCard>
+          ) : (
+            <div className="space-y-4">
+              <AnimatePresence mode="popLayout">
+                {filteredReports.map((report, idx) => {
+                  const typeConfig = reportTypes.find(t => t.value === report.type);
+                  const StatusIcon = statusConfig[report.status]?.icon || Clock;
+                  const TypeIcon = typeConfig?.icon || AlertCircle;
+                  
+                  return (
+                    <motion.div
+                      key={report.id}
+                      layout
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ delay: idx * 0.05 }}
+                    >
+                      <GlassCard className="p-5">
+                        <div className="flex items-start gap-4">
+                          <div className={`h-12 w-12 rounded-xl ${typeConfig?.color || "bg-slate-500"} flex items-center justify-center flex-shrink-0`}>
+                            <TypeIcon className="h-6 w-6 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4 mb-2">
+                              <div>
+                                <h3 className="font-semibold text-slate-900">{report.title}</h3>
+                                <div className="flex items-center gap-2 text-sm text-slate-500 mt-1">
+                                  <MapPin className="h-3 w-3" />
+                                  <span>{report.location}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Badge className={priorityColors[report.priority]}>
+                                  {report.priority}
+                                </Badge>
+                                <Badge className={statusConfig[report.status]?.color}>
+                                  <StatusIcon className="h-3 w-3 mr-1" />
+                                  {statusConfig[report.status]?.label}
+                                </Badge>
+                              </div>
+                            </div>
+                            {report.description && (
+                              <p className="text-sm text-slate-600 line-clamp-2">{report.description}</p>
+                            )}
+                            {report.points_awarded > 0 && (
+                              <p className="text-xs text-emerald-600 mt-2">
+                                +{report.points_awarded} points earned
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </GlassCard>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+      </Tabs>
+    </div>
+  );
+}

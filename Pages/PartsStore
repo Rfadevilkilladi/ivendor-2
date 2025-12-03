@@ -1,0 +1,345 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ShoppingCart,
+  Search,
+  Filter,
+  Package,
+  IndianRupee,
+  Plus,
+  Minus,
+  QrCode,
+  Loader2,
+  CheckCircle2,
+  Store,
+  Cpu,
+  Zap,
+  Settings,
+  Box
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import GlassCard from "@/components/ui/GlassCard";
+
+const categories = [
+  { value: "all", label: "All Categories", icon: Package },
+  { value: "Electronics", label: "Electronics", icon: Cpu },
+  { value: "Mechanical", label: "Mechanical", icon: Settings },
+  { value: "Sensors", label: "Sensors", icon: Zap },
+  { value: "Motors", label: "Motors", icon: Settings },
+  { value: "Power", label: "Power Supply", icon: Zap },
+  { value: "Kits", label: "Project Kits", icon: Box }
+];
+
+export default function PartsStore() {
+  const [user, setUser] = useState(null);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [cart, setCart] = useState([]);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: parts = [], isLoading } = useQuery({
+    queryKey: ["parts"],
+    queryFn: () => base44.entities.Part.filter({ status: "approved" }),
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (orderData) => {
+      for (const item of cart) {
+        await base44.entities.PartOrder.create({
+          user_email: user?.email,
+          part_id: item.id,
+          part_name: item.name,
+          quantity: item.quantity,
+          total_amount: item.price * item.quantity,
+          seller_email: item.seller_email,
+          payment_status: "paid",
+          payment_reference: `PAY${Date.now()}`,
+          order_status: "confirmed"
+        });
+      }
+    },
+    onSuccess: () => {
+      setPaymentSuccess(true);
+      setCart([]);
+      setTimeout(() => {
+        setCheckoutOpen(false);
+        setPaymentSuccess(false);
+      }, 2000);
+    },
+  });
+
+  const filteredParts = parts.filter(p => {
+    const matchesSearch = p.name?.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = category === "all" || p.category === category;
+    return matchesSearch && matchesCategory;
+  });
+
+  const addToCart = (part) => {
+    const existing = cart.find(c => c.id === part.id);
+    if (existing) {
+      setCart(cart.map(c => c.id === part.id ? { ...c, quantity: c.quantity + 1 } : c));
+    } else {
+      setCart([...cart, { ...part, quantity: 1 }]);
+    }
+  };
+
+  const updateQuantity = (partId, delta) => {
+    setCart(cart.map(c => {
+      if (c.id === partId) {
+        const newQty = c.quantity + delta;
+        return newQty > 0 ? { ...c, quantity: newQty } : c;
+      }
+      return c;
+    }).filter(c => c.quantity > 0));
+  };
+
+  const removeFromCart = (partId) => {
+    setCart(cart.filter(c => c.id !== partId));
+  };
+
+  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Generate UPI QR code URL (demo)
+  const upiUrl = `upi://pay?pa=ivender@upi&pn=I-Vendor&am=${cartTotal}&cu=INR&tn=Parts%20Purchase`;
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+              <Store className="h-5 w-5 text-white" />
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Parts Store</h1>
+          </div>
+          <p className="text-slate-500">Buy components for your projects</p>
+        </div>
+
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button className="relative bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+              <ShoppingCart className="h-4 w-4 mr-2" />
+              Cart
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Shopping Cart</SheetTitle>
+            </SheetHeader>
+            <div className="mt-6 space-y-4">
+              {cart.length === 0 ? (
+                <div className="text-center py-10">
+                  <ShoppingCart className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500">Your cart is empty</p>
+                </div>
+              ) : (
+                <>
+                  {cart.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                      <div className="h-12 w-12 rounded-lg bg-purple-100 flex items-center justify-center">
+                        <Package className="h-6 w-6 text-purple-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-slate-900 truncate">{item.name}</p>
+                        <p className="text-sm text-slate-500">₹{item.price} each</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.id, -1)}>
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.id, 1)}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="border-t pt-4 mt-4">
+                    <div className="flex items-center justify-between text-lg font-bold">
+                      <span>Total</span>
+                      <span className="text-purple-600">₹{cartTotal.toLocaleString("en-IN")}</span>
+                    </div>
+                    <Button
+                      onClick={() => setCheckoutOpen(true)}
+                      className="w-full mt-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white"
+                    >
+                      <QrCode className="h-4 w-4 mr-2" />
+                      Pay with UPI
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search parts..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((cat) => (
+              <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Parts Grid */}
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+        </div>
+      ) : filteredParts.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900">No Parts Found</h3>
+          <p className="text-slate-500">Check back later for new components</p>
+        </GlassCard>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <AnimatePresence>
+            {filteredParts.map((part, idx) => (
+              <motion.div
+                key={part.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <GlassCard className="p-4 h-full flex flex-col">
+                  <div className="h-32 rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center mb-3">
+                    {part.image_url ? (
+                      <img src={part.image_url} alt={part.name} className="h-full w-full object-contain rounded-lg" />
+                    ) : (
+                      <Package className="h-12 w-12 text-slate-300" />
+                    )}
+                  </div>
+                  <Badge className="w-fit mb-2 bg-purple-100 text-purple-700">{part.category}</Badge>
+                  <h3 className="font-semibold text-slate-900 mb-1">{part.name}</h3>
+                  <p className="text-sm text-slate-500 line-clamp-2 flex-1">{part.description}</p>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                    <div>
+                      <p className="text-lg font-bold text-purple-600">₹{part.price?.toLocaleString("en-IN")}</p>
+                      <p className="text-xs text-slate-500">by {part.seller_name}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => addToCart(part)}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Checkout Dialog */}
+      <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Complete Payment</DialogTitle>
+          </DialogHeader>
+          {paymentSuccess ? (
+            <div className="text-center py-8">
+              <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">Payment Successful!</h3>
+              <p className="text-slate-500 mt-1">Your order has been placed</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-purple-600">₹{cartTotal.toLocaleString("en-IN")}</p>
+                <p className="text-sm text-slate-500">{cartCount} items</p>
+              </div>
+
+              {/* QR Code Placeholder */}
+              <div className="bg-white p-4 rounded-xl border-2 border-dashed border-slate-200">
+                <div className="h-48 w-48 mx-auto bg-slate-100 rounded-lg flex items-center justify-center">
+                  <div className="text-center">
+                    <QrCode className="h-16 w-16 text-slate-400 mx-auto mb-2" />
+                    <p className="text-xs text-slate-500">UPI QR Code</p>
+                    <p className="text-xs text-slate-400">Scan to pay</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center text-sm text-slate-500">
+                <p>UPI ID: <strong>ivender@upi</strong></p>
+              </div>
+
+              <Button
+                onClick={() => createOrderMutation.mutate()}
+                disabled={createOrderMutation.isPending}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+              >
+                {createOrderMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                )}
+                Confirm Payment (Demo)
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

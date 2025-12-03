@@ -1,0 +1,238 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import moment from "moment";
+import {
+  UserCheck,
+  Search,
+  Calendar,
+  Clock,
+  MapPin,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Download,
+  Filter
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import GlassCard from "@/components/ui/GlassCard";
+import StatCard from "@/components/ui/StatCard";
+
+const statusConfig = {
+  present: { label: "Present", color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2 },
+  late: { label: "Late", color: "bg-amber-100 text-amber-700", icon: AlertCircle }
+};
+
+const departments = ["All", "Mechanical", "Civil", "Electrical", "Computer Science", "Electronics"];
+const years = ["All", "1", "2", "3", "4"];
+
+export default function AdminAttendance() {
+  const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("today");
+  const [departmentFilter, setDepartmentFilter] = useState("All");
+  const [yearFilter, setYearFilter] = useState("All");
+
+  const { data: attendance = [], isLoading } = useQuery({
+    queryKey: ["all-attendance"],
+    queryFn: () => base44.entities.Attendance.list("-created_date"),
+  });
+
+  const filteredAttendance = attendance.filter(a => {
+    // Search filter
+    const matchesSearch = 
+      a.student_name?.toLowerCase().includes(search.toLowerCase()) ||
+      a.student_email?.toLowerCase().includes(search.toLowerCase()) ||
+      a.student_id?.toLowerCase().includes(search.toLowerCase());
+    
+    // Date filter
+    let matchesDate = true;
+    if (dateFilter === "today") {
+      matchesDate = moment(a.date).isSame(moment(), 'day');
+    } else if (dateFilter === "week") {
+      matchesDate = moment(a.date).isSame(moment(), 'week');
+    } else if (dateFilter === "month") {
+      matchesDate = moment(a.date).isSame(moment(), 'month');
+    }
+
+    // Note: department and year filters would require student info from User entity
+    // For now, we'll just use the basic filters
+    
+    return matchesSearch && matchesDate;
+  });
+
+  const stats = {
+    today: attendance.filter(a => moment(a.date).isSame(moment(), 'day')).length,
+    present: attendance.filter(a => a.status === "present").length,
+    late: attendance.filter(a => a.status === "late").length,
+    total: attendance.length
+  };
+
+  // Group by date for summary
+  const byDate = filteredAttendance.reduce((acc, a) => {
+    const date = a.date;
+    if (!acc[date]) acc[date] = { present: 0, late: 0 };
+    if (a.status === "present") acc[date].present++;
+    if (a.status === "late") acc[date].late++;
+    return acc;
+  }, {});
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Attendance Records</h1>
+          <p className="text-slate-500">View and filter all student attendance logs</p>
+        </div>
+        <Button variant="outline">
+          <Download className="h-4 w-4 mr-2" />
+          Export CSV
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={UserCheck} label="Today" value={stats.today} color="blue" />
+        <StatCard icon={CheckCircle2} label="Total Present" value={stats.present} color="emerald" />
+        <StatCard icon={AlertCircle} label="Total Late" value={stats.late} color="amber" />
+        <StatCard icon={Calendar} label="Total Records" value={stats.total} color="purple" />
+      </div>
+
+      {/* Filters */}
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="h-4 w-4 text-slate-500" />
+          <span className="font-medium text-slate-700">Filters</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <Input
+              placeholder="Search by name, email, or ID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full"
+            />
+          </div>
+          <Select value={dateFilter} onValueChange={setDateFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder="Date range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder="Department" />
+            </SelectTrigger>
+            <SelectContent>
+              {departments.map((dept) => (
+                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={yearFilter} onValueChange={setYearFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder="Year" />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((year) => (
+                <SelectItem key={year} value={year}>
+                  {year === "All" ? "All Years" : `${year}${year === "1" ? "st" : year === "2" ? "nd" : year === "3" ? "rd" : "th"} Year`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </GlassCard>
+
+      {/* Summary by Date */}
+      {Object.keys(byDate).length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {Object.entries(byDate).slice(0, 7).map(([date, counts]) => (
+            <GlassCard key={date} className="p-3 min-w-[140px]">
+              <p className="text-xs text-slate-500 mb-1">{moment(date).format("ddd, MMM D")}</p>
+              <div className="flex items-center gap-3">
+                <span className="text-emerald-600 font-medium">{counts.present} ✓</span>
+                <span className="text-amber-600 font-medium">{counts.late} ⏰</span>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+
+      {/* Attendance List */}
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      ) : filteredAttendance.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <UserCheck className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-900">No Records Found</h3>
+          <p className="text-slate-500">Try adjusting your filters</p>
+        </GlassCard>
+      ) : (
+        <GlassCard className="divide-y divide-slate-100">
+          <AnimatePresence>
+            {filteredAttendance.map((record, idx) => {
+              const StatusIcon = statusConfig[record.status]?.icon || CheckCircle2;
+              return (
+                <motion.div
+                  key={record.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: idx * 0.03 }}
+                  className="flex items-center justify-between p-4"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`h-10 w-10 rounded-full flex items-center justify-center ${statusConfig[record.status]?.color}`}>
+                      <StatusIcon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">
+                        {record.student_name || record.student_email}
+                      </p>
+                      <div className="flex items-center gap-3 text-sm text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {moment(record.date).format("MMM D, YYYY")}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {record.check_in_time}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {record.location}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge className="bg-slate-100 text-slate-600">{record.method}</Badge>
+                    <Badge className={statusConfig[record.status]?.color}>
+                      {statusConfig[record.status]?.label}
+                    </Badge>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </GlassCard>
+      )}
+    </div>
+  );
+}

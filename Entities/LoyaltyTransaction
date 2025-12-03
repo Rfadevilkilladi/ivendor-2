@@ -1,0 +1,43 @@
+{
+  "name": "LoyaltyTransaction",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "recycling",
+        "attendance",
+        "report",
+        "project_milestone",
+        "referral",
+        "suggestion",
+        "event_participation"
+      ],
+      "description": "Type of action that earned points"
+    },
+    "points": {
+      "type": "number",
+      "description": "Points earned (positive) or spent (negative)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Transaction description"
+    },
+    "reference_id": {
+      "type": "string",
+      "description": "Reference to related entity (recycling ID, report ID, etc.)"
+    },
+    "balance_after": {
+      "type": "number",
+      "description": "Points balance after transaction"
+    }
+  },
+  "required": [
+    "user_email",
+    "action_type",
+    "points"
+  ]
+}

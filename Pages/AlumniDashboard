@@ -1,0 +1,582 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import moment from "moment";
+import {
+  Users,
+  IndianRupee,
+  Calendar,
+  Package,
+  TrendingUp,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Plus,
+  Loader2,
+  Star,
+  MessageCircle,
+  Truck,
+  History,
+  ShoppingBag,
+  GraduationCap,
+  Building,
+  Filter
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import UnifiedCard from "@/components/ui/UnifiedCard";
+import StatCardUnified from "@/components/ui/StatCardUnified";
+import EmptyState from "@/components/ui/EmptyState";
+import { toast } from "sonner";
+
+const partCategories = ["Electronics", "Mechanical", "Sensors", "Motors", "Power", "Tools", "Raw Materials", "Kits"];
+
+export default function AlumniDashboard() {
+  const [user, setUser] = useState(null);
+  const [addPartDialog, setAddPartDialog] = useState(false);
+  const [newPart, setNewPart] = useState({
+    name: "",
+    description: "",
+    category: "Electronics",
+    price: 0,
+    stock: 10,
+    specifications: ""
+  });
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("ivender_user");
+    if (savedUser) setUser(JSON.parse(savedUser));
+  }, []);
+
+  const { data: bookings = [] } = useQuery({
+    queryKey: ["mentor-bookings", user?.email],
+    queryFn: () => base44.entities.MentorBooking.filter({ mentor_email: user?.email }, "-created_date"),
+    enabled: !!user?.email,
+  });
+
+  const { data: parts = [] } = useQuery({
+    queryKey: ["my-parts", user?.email],
+    queryFn: () => base44.entities.Part.filter({ seller_email: user?.email }),
+    enabled: !!user?.email,
+  });
+
+  const { data: orders = [] } = useQuery({
+    queryKey: ["my-part-orders", user?.email],
+    queryFn: () => base44.entities.PartOrder.filter({ seller_email: user?.email }, "-created_date"),
+    enabled: !!user?.email,
+  });
+
+  const addPartMutation = useMutation({
+    mutationFn: (data) => base44.entities.Part.create({
+      ...data,
+      seller_email: user?.email,
+      seller_name: user?.name || user?.company_name,
+      seller_type: user?.user_type,
+      status: "pending"
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-parts"] });
+      setAddPartDialog(false);
+      setNewPart({ name: "", description: "", category: "Electronics", price: 0, stock: 10, specifications: "" });
+      toast.success("Product submitted for approval!");
+    },
+  });
+
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const totalEarnings = bookings.filter(b => b.payment_status === "paid").reduce((sum, b) => sum + (b.amount || 0), 0);
+  const partSales = orders.filter(o => o.payment_status === "paid").reduce((sum, o) => sum + (o.total_amount || 0), 0);
+  const pendingBookings = bookings.filter(b => b.booking_status === "pending").length;
+  const confirmedBookings = bookings.filter(b => b.booking_status === "confirmed").length;
+
+  const statusConfig = {
+    pending: { label: "Pending", color: "bg-amber-100 text-amber-700" },
+    confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700" },
+    completed: { label: "Completed", color: "bg-emerald-100 text-emerald-700" },
+    cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700" }
+  };
+
+  const orderStatusConfig = {
+    pending: { label: "Pending", color: "bg-amber-100 text-amber-700" },
+    confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700" },
+    shipped: { label: "Shipped", color: "bg-purple-100 text-purple-700" },
+    delivered: { label: "Delivered", color: "bg-emerald-100 text-emerald-700" }
+  };
+
+  const updateOrderMutation = useMutation({
+    mutationFn: ({ id, status }) => base44.entities.PartOrder.update(id, { order_status: status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-part-orders"] });
+    },
+  });
+
+  const updateBookingMutation = useMutation({
+    mutationFn: ({ id, status }) => base44.entities.MentorBooking.update(id, { booking_status: status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mentor-bookings"] });
+    },
+  });
+
+  const pendingOrders = orders.filter(o => o.order_status === "pending" || o.order_status === "confirmed");
+  const pastOrders = orders.filter(o => o.order_status === "shipped" || o.order_status === "delivered");
+
+  const isAlumni = user?.user_type === "alumni";
+  const isCompany = user?.user_type === "company";
+
+  const filteredParts = categoryFilter === "all" ? parts : parts.filter(p => p.category === categoryFilter);
+  const approvedParts = parts.filter(p => p.status === "approved").length;
+  const totalStock = parts.reduce((sum, p) => sum + (p.stock || 0), 0);
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`relative overflow-hidden rounded-2xl p-6 lg:p-8 text-white ${
+          isCompany 
+            ? "bg-gradient-to-br from-amber-500 via-orange-500 to-red-500" 
+            : "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600"
+        }`}
+      >
+        <div className="absolute top-0 right-0 w-80 h-80 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-2 opacity-80">
+            {isCompany ? <Building className="h-4 w-4" /> : <GraduationCap className="h-4 w-4" />}
+            <span className="text-sm font-medium">{isCompany ? "Store Dashboard" : "Alumni Dashboard"}</span>
+          </div>
+          <h1 className="text-2xl lg:text-3xl font-bold mb-1">Welcome, {user?.name || user?.company_name}</h1>
+          <p className="text-sm opacity-80">
+            {isCompany ? "Manage your parts store and orders" : "Manage your mentorship and parts store"}
+          </p>
+        </div>
+      </motion.div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {isAlumni && (
+          <StatCardUnified icon={IndianRupee} label="Mentorship Earnings" value={`₹${totalEarnings.toLocaleString("en-IN")}`} color="emerald" />
+        )}
+        <StatCardUnified icon={Package} label="Parts Sales" value={`₹${partSales.toLocaleString("en-IN")}`} trendLabel={`${orders.length} orders`} color="purple" />
+        <StatCardUnified icon={ShoppingBag} label="Pending Orders" value={pendingOrders.length} color="amber" />
+        {isAlumni ? (
+          <StatCardUnified icon={CheckCircle2} label="Sessions" value={`${confirmedBookings} confirmed`} trendLabel={`${pendingBookings} pending`} color="blue" />
+        ) : (
+          <>
+            <StatCardUnified icon={History} label="Completed Orders" value={pastOrders.length} color="blue" />
+          </>
+        )}
+      </div>
+
+      {/* Inventory Overview for Company */}
+      {isCompany && (
+        <UnifiedCard>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900">Inventory Overview</h3>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg bg-emerald-50 text-center">
+              <p className="text-2xl font-bold text-emerald-700">{parts.length}</p>
+              <p className="text-xs text-emerald-600">Total Products</p>
+            </div>
+            <div className="p-4 rounded-lg bg-blue-50 text-center">
+              <p className="text-2xl font-bold text-blue-700">{approvedParts}</p>
+              <p className="text-xs text-blue-600">Approved</p>
+            </div>
+            <div className="p-4 rounded-lg bg-amber-50 text-center">
+              <p className="text-2xl font-bold text-amber-700">{totalStock}</p>
+              <p className="text-xs text-amber-600">Total Stock</p>
+            </div>
+          </div>
+        </UnifiedCard>
+      )}
+
+      <Tabs defaultValue={isCompany ? "orders" : "bookings"}>
+        <TabsList className="bg-white/50 border mb-6">
+          {isAlumni && <TabsTrigger value="bookings">Mentorship Requests</TabsTrigger>}
+          <TabsTrigger value="parts">My Products</TabsTrigger>
+          <TabsTrigger value="orders">Active Orders</TabsTrigger>
+          <TabsTrigger value="history">Order History</TabsTrigger>
+        </TabsList>
+
+        {/* Mentorship Bookings */}
+        {isAlumni && (
+          <TabsContent value="bookings">
+            <UnifiedCard>
+              <h3 className="font-semibold text-slate-900 mb-4">Mentorship Requests</h3>
+              {bookings.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title="No mentorship requests yet"
+                  description="When students book sessions with you, they'll appear here"
+                  className="py-8"
+                />
+              ) : (
+                <div className="space-y-4">
+                  {bookings.map((booking) => (
+                    <div key={booking.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-slate-50 gap-4">
+                      <div>
+                        <p className="font-medium text-slate-900">{booking.student_name || booking.student_email}</p>
+                        <p className="text-sm text-slate-500">{booking.project_title || "General mentorship"}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                          <Calendar className="h-3 w-3" />
+                          <span>{moment(booking.scheduled_date).format("MMM D, YYYY")}</span>
+                          <span>•</span>
+                          <span className="capitalize">{booking.session_type?.replace("_", " ")}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <Badge className={statusConfig[booking.booking_status]?.color}>
+                            {statusConfig[booking.booking_status]?.label}
+                          </Badge>
+                          <p className="text-lg font-bold text-emerald-600 mt-1">₹{booking.amount?.toLocaleString("en-IN")}</p>
+                        </div>
+                        {booking.booking_status === "pending" && (
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              size="sm"
+                              onClick={() => updateBookingMutation.mutate({ id: booking.id, status: "confirmed" })}
+                              disabled={updateBookingMutation.isPending}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                            >
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Accept
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateBookingMutation.mutate({ id: booking.id, status: "cancelled" })}
+                              disabled={updateBookingMutation.isPending}
+                              className="text-red-600 border-red-200"
+                            >
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Decline
+                            </Button>
+                          </div>
+                        )}
+                        {booking.booking_status === "confirmed" && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              updateBookingMutation.mutate({ id: booking.id, status: "completed" });
+                              toast.success("Session marked as complete!");
+                            }}
+                            disabled={updateBookingMutation.isPending}
+                            className="bg-blue-500 hover:bg-blue-600 text-white"
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Mark Complete
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </UnifiedCard>
+          </TabsContent>
+        )}
+
+        {/* My Parts */}
+        <TabsContent value="parts">
+          <UnifiedCard>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <h3 className="font-semibold text-slate-900">My Products</h3>
+              <div className="flex items-center gap-3">
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-[150px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Filter" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {partCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Dialog open={addPartDialog} onOpenChange={setAddPartDialog}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Product
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>List New Product</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-4">
+                      <div>
+                        <Label>Product Name</Label>
+                        <Input
+                          value={newPart.name}
+                          onChange={(e) => setNewPart({ ...newPart, name: e.target.value })}
+                          placeholder="Enter product name"
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Category</Label>
+                        <Select value={newPart.category} onValueChange={(v) => setNewPart({ ...newPart, category: v })}>
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {partCategories.map((cat) => (
+                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label>Price (₹)</Label>
+                          <Input
+                            type="number"
+                            value={newPart.price}
+                            onChange={(e) => setNewPart({ ...newPart, price: parseInt(e.target.value) || 0 })}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Stock</Label>
+                          <Input
+                            type="number"
+                            value={newPart.stock}
+                            onChange={(e) => setNewPart({ ...newPart, stock: parseInt(e.target.value) || 0 })}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Description</Label>
+                        <Textarea
+                          value={newPart.description}
+                          onChange={(e) => setNewPart({ ...newPart, description: e.target.value })}
+                          placeholder="Describe your product..."
+                          className="mt-1"
+                        />
+                      </div>
+                      <Button
+                        onClick={() => addPartMutation.mutate(newPart)}
+                        disabled={addPartMutation.isPending || !newPart.name || !newPart.price}
+                        className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                      >
+                        {addPartMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        Submit for Approval
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+            {filteredParts.length === 0 ? (
+              <EmptyState
+                icon={Package}
+                title="No products found"
+                description={categoryFilter !== "all" ? "Try a different category" : "Add your first product to start selling"}
+                className="py-8"
+              />
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredParts.map((part) => (
+                  <div key={part.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h4 className="font-medium text-slate-900">{part.name}</h4>
+                        <Badge className="mt-1 bg-purple-100 text-purple-700 text-xs">{part.category}</Badge>
+                      </div>
+                      <Badge className={`text-xs ${
+                        part.status === "approved" ? "bg-emerald-100 text-emerald-700" :
+                        part.status === "rejected" ? "bg-red-100 text-red-700" :
+                        "bg-amber-100 text-amber-700"
+                      }`}>
+                        {part.status}
+                      </Badge>
+                    </div>
+                    {part.description && (
+                      <p className="text-xs text-slate-500 line-clamp-2 mb-3">{part.description}</p>
+                    )}
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                      <span className="text-sm text-slate-500">Stock: {part.stock}</span>
+                      <span className="font-bold text-emerald-600">₹{part.price?.toLocaleString("en-IN")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </UnifiedCard>
+        </TabsContent>
+
+        {/* Active Orders */}
+        <TabsContent value="orders">
+          <UnifiedCard>
+            <h3 className="font-semibold text-slate-900 mb-4">Active Orders</h3>
+            {pendingOrders.length === 0 ? (
+              <EmptyState
+                icon={Package}
+                title="No active orders"
+                description="New orders will appear here when customers purchase your products"
+                className="py-8"
+              />
+            ) : (
+              <div className="space-y-3">
+                {pendingOrders.map((order) => (
+                  <div key={order.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-slate-50 gap-4">
+                    <div>
+                      <p className="font-medium text-slate-900">{order.part_name}</p>
+                      <p className="text-sm text-slate-500">Qty: {order.quantity} • {order.user_email}</p>
+                      <p className="text-xs text-slate-400 mt-1">{moment(order.created_date).format("MMM D, YYYY h:mm A")}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <Badge className={orderStatusConfig[order.order_status]?.color}>
+                          {orderStatusConfig[order.order_status]?.label}
+                        </Badge>
+                        <p className="text-lg font-bold text-emerald-600 mt-1">₹{order.total_amount?.toLocaleString("en-IN")}</p>
+                      </div>
+                      {order.order_status === "pending" && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            updateOrderMutation.mutate({ id: order.id, status: "confirmed" });
+                            toast.success("Order confirmed!");
+                          }}
+                          disabled={updateOrderMutation.isPending}
+                          className="bg-blue-500 hover:bg-blue-600 text-white"
+                        >
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Confirm
+                        </Button>
+                      )}
+                      {order.order_status === "confirmed" && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            updateOrderMutation.mutate({ id: order.id, status: "shipped" });
+                            toast.success("Order shipped!");
+                          }}
+                          disabled={updateOrderMutation.isPending}
+                          className="bg-purple-500 hover:bg-purple-600 text-white"
+                        >
+                          <Truck className="h-3 w-3 mr-1" />
+                          Ship
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </UnifiedCard>
+        </TabsContent>
+
+        {/* Order History */}
+        <TabsContent value="history">
+          <UnifiedCard>
+            <h3 className="font-semibold text-slate-900 mb-4">Order History</h3>
+            {pastOrders.length === 0 ? (
+              <EmptyState
+                icon={History}
+                title="No order history"
+                description="Completed orders will appear here"
+                className="py-8"
+              />
+            ) : (
+              <div className="space-y-3">
+                {pastOrders.map((order) => (
+                  <div key={order.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-slate-50 gap-4">
+                    <div>
+                      <p className="font-medium text-slate-900">{order.part_name}</p>
+                      <p className="text-sm text-slate-500">Qty: {order.quantity} • {order.user_email}</p>
+                      <p className="text-xs text-slate-400 mt-1">{moment(order.created_date).format("MMM D, YYYY h:mm A")}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <Badge className={orderStatusConfig[order.order_status]?.color}>
+                          {orderStatusConfig[order.order_status]?.label}
+                        </Badge>
+                        <p className="text-lg font-bold text-emerald-600 mt-1">₹{order.total_amount?.toLocaleString("en-IN")}</p>
+                      </div>
+                      {order.order_status === "shipped" && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            updateOrderMutation.mutate({ id: order.id, status: "delivered" });
+                            toast.success("Order marked as delivered!");
+                          }}
+                          disabled={updateOrderMutation.isPending}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                        >
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Delivered
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </UnifiedCard>
+        </TabsContent>
+      </Tabs>
+
+      {/* Alumni-specific: Student Follow-up Section */}
+      {isAlumni && (
+        <UnifiedCard>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900">Students You've Mentored</h3>
+            <Badge className="bg-blue-100 text-blue-700">{bookings.filter(b => b.booking_status === "completed").length} sessions</Badge>
+          </div>
+          {bookings.filter(b => b.booking_status === "completed").length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="No completed sessions"
+              description="Students you've mentored will appear here"
+              className="py-6"
+            />
+          ) : (
+            <div className="space-y-3">
+              {bookings.filter(b => b.booking_status === "completed").slice(0, 5).map((booking) => (
+                <div key={booking.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-sm font-medium">
+                      {booking.student_name?.charAt(0) || "S"}
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900 text-sm">{booking.student_name || booking.student_email}</p>
+                      <p className="text-xs text-slate-500">{booking.project_title || "General mentorship"}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-slate-400">{moment(booking.scheduled_date).format("MMM D")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </UnifiedCard>
+      )}
+    </div>
+  );
+}

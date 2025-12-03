@@ -1,0 +1,599 @@
+import React, { useState, useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Users, Package, Building, CheckCircle2, XCircle, Clock, Send,
+  Mail, Eye, Loader2, GraduationCap, AlertTriangle, MessageSquare,
+  Filter, Search, ChevronRight, Star, Briefcase
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import UnifiedCard from "@/components/ui/UnifiedCard";
+import PageHeader from "@/components/ui/PageHeader";
+import EmptyState from "@/components/ui/EmptyState";
+import { toast } from "sonner";
+
+export default function AdminApprovals() {
+  const [activeTab, setActiveTab] = useState("mentors");
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [reviewDialog, setReviewDialog] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewAction, setReviewAction] = useState("approve");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const queryClient = useQueryClient();
+
+  // Fetch pending mentor applications
+  const { data: mentorApps = [], isLoading: loadingMentors } = useQuery({
+    queryKey: ["mentor-applications-all"],
+    queryFn: () => base44.entities.MentorApplication.list("-created_date"),
+  });
+
+  // Fetch pending parts
+  const { data: parts = [], isLoading: loadingParts } = useQuery({
+    queryKey: ["parts-all"],
+    queryFn: () => base44.entities.Part.list("-created_date"),
+  });
+
+  // Update mentor application
+  const updateMentorMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.MentorApplication.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mentor-applications-all"] });
+      toast.success(reviewAction === "approve" ? "Application approved!" : "Application rejected");
+      setReviewDialog(false);
+      setSelectedItem(null);
+      setReviewMessage("");
+    },
+  });
+
+  // Create mentor from approved application
+  const createMentorMutation = useMutation({
+    mutationFn: (data) => base44.entities.Mentor.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mentors"] });
+    },
+  });
+
+  // Update part status
+  const updatePartMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Part.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["parts-all"] });
+      toast.success(reviewAction === "approve" ? "Product approved!" : "Product rejected");
+      setReviewDialog(false);
+      setSelectedItem(null);
+      setReviewMessage("");
+    },
+  });
+
+  const handleReview = async () => {
+    if (activeTab === "mentors" && selectedItem) {
+      // Update application status
+      await updateMentorMutation.mutateAsync({
+        id: selectedItem.id,
+        data: { 
+          status: reviewAction === "approve" ? "approved" : "rejected",
+          review_message: reviewMessage 
+        }
+      });
+
+      // If approved, create mentor profile
+      if (reviewAction === "approve") {
+        await createMentorMutation.mutateAsync({
+          name: selectedItem.applicant_name,
+          email: selectedItem.applicant_email,
+          role: selectedItem.applicant_type === "alumni" ? "Alumni" : 
+                selectedItem.applicant_type === "professor" ? "Professor" : "Industry Expert",
+          expertise: selectedItem.expertise || [],
+          company: selectedItem.company_name,
+          graduation_year: selectedItem.graduation_year,
+          bio: selectedItem.bio,
+          hourly_rate: selectedItem.hourly_rate || 500,
+          linkedin_url: selectedItem.linkedin_url,
+          is_verified: true,
+          available: true
+        });
+      }
+    } else if (activeTab === "products" && selectedItem) {
+      await updatePartMutation.mutateAsync({
+        id: selectedItem.id,
+        data: { 
+          status: reviewAction === "approve" ? "approved" : "rejected"
+        }
+      });
+    }
+  };
+
+  // Filter data
+  const filteredMentors = mentorApps.filter(app => {
+    const matchesSearch = app.applicant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          app.applicant_email?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || app.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredParts = parts.filter(part => {
+    const matchesSearch = part.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          part.seller_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || part.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const pendingMentors = mentorApps.filter(a => a.status === "pending").length;
+  const pendingParts = parts.filter(p => p.status === "pending").length;
+
+  const statusColors = {
+    pending: "bg-amber-100 text-amber-700",
+    approved: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-red-100 text-red-700"
+  };
+
+  const applicantTypeIcons = {
+    alumni: GraduationCap,
+    professor: Users,
+    company: Building
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      <PageHeader
+        icon={CheckCircle2}
+        title="Approvals Center"
+        subtitle="Review and approve mentor applications, product listings, and more"
+        color="purple"
+        badge={pendingMentors + pendingParts > 0 ? `${pendingMentors + pendingParts} pending` : undefined}
+      />
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <UnifiedCard className="p-4 border-l-4 border-l-blue-500">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+              <Users className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-slate-900">{pendingMentors}</p>
+              <p className="text-sm text-slate-500">Mentor Apps</p>
+            </div>
+          </div>
+        </UnifiedCard>
+        <UnifiedCard className="p-4 border-l-4 border-l-purple-500">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
+              <Package className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-slate-900">{pendingParts}</p>
+              <p className="text-sm text-slate-500">Product Listings</p>
+            </div>
+          </div>
+        </UnifiedCard>
+        <UnifiedCard className="p-4 border-l-4 border-l-emerald-500">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-slate-900">
+                {mentorApps.filter(a => a.status === "approved").length}
+              </p>
+              <p className="text-sm text-slate-500">Approved Mentors</p>
+            </div>
+          </div>
+        </UnifiedCard>
+        <UnifiedCard className="p-4 border-l-4 border-l-amber-500">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center">
+              <Package className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-slate-900">
+                {parts.filter(p => p.status === "approved").length}
+              </p>
+              <p className="text-sm text-slate-500">Active Products</p>
+            </div>
+          </div>
+        </UnifiedCard>
+      </div>
+
+      {/* Filters */}
+      <UnifiedCard className="p-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by name or email..."
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-40">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </UnifiedCard>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="mentors" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Mentor Applications
+            {pendingMentors > 0 && (
+              <Badge className="bg-red-500 text-white ml-1">{pendingMentors}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="products" className="flex items-center gap-2">
+            <Package className="h-4 w-4" />
+            Product Listings
+            {pendingParts > 0 && (
+              <Badge className="bg-red-500 text-white ml-1">{pendingParts}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Mentor Applications */}
+        <TabsContent value="mentors" className="mt-6">
+          {loadingMentors ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+            </div>
+          ) : filteredMentors.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="No applications found"
+              description={statusFilter === "pending" ? "No pending mentor applications" : "No applications match your filters"}
+            />
+          ) : (
+            <div className="grid gap-4">
+              <AnimatePresence>
+                {filteredMentors.map((app, idx) => {
+                  const TypeIcon = applicantTypeIcons[app.applicant_type] || Users;
+                  return (
+                    <motion.div
+                      key={app.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ delay: idx * 0.05 }}
+                    >
+                      <UnifiedCard className="p-5 hover:shadow-lg transition-shadow">
+                        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                          <div className="flex items-center gap-4 flex-1">
+                            <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xl font-bold">
+                              {app.applicant_name?.charAt(0) || "?"}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold text-slate-900">{app.applicant_name}</h3>
+                                <Badge className={statusColors[app.status]}>{app.status}</Badge>
+                              </div>
+                              <p className="text-sm text-slate-500 truncate">{app.applicant_email}</p>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                <span className="flex items-center gap-1">
+                                  <TypeIcon className="h-3 w-3" />
+                                  {app.applicant_type}
+                                </span>
+                                {app.company_name && (
+                                  <span className="flex items-center gap-1">
+                                    <Building className="h-3 w-3" />
+                                    {app.company_name}
+                                  </span>
+                                )}
+                                {app.hourly_rate && (
+                                  <span>₹{app.hourly_rate}/hr</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {app.expertise?.slice(0, 3).map((skill, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">
+                                {skill}
+                              </Badge>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedItem(app);
+                                setReviewAction("view");
+                                setReviewDialog(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                            {app.status === "pending" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                                  onClick={() => {
+                                    setSelectedItem(app);
+                                    setReviewAction("approve");
+                                    setReviewDialog(true);
+                                  }}
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-red-200 text-red-600 hover:bg-red-50"
+                                  onClick={() => {
+                                    setSelectedItem(app);
+                                    setReviewAction("reject");
+                                    setReviewDialog(true);
+                                  }}
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Reject
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </UnifiedCard>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Product Listings */}
+        <TabsContent value="products" className="mt-6">
+          {loadingParts ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+            </div>
+          ) : filteredParts.length === 0 ? (
+            <EmptyState
+              icon={Package}
+              title="No products found"
+              description={statusFilter === "pending" ? "No pending product listings" : "No products match your filters"}
+            />
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <AnimatePresence>
+                {filteredParts.map((part, idx) => (
+                  <motion.div
+                    key={part.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: idx * 0.05 }}
+                  >
+                    <UnifiedCard className="p-5 h-full flex flex-col">
+                      <div className="flex items-start justify-between mb-3">
+                        {part.image_url ? (
+                          <img 
+                            src={part.image_url} 
+                            alt={part.name}
+                            className="h-16 w-16 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <div className="h-16 w-16 rounded-lg bg-slate-100 flex items-center justify-center">
+                            <Package className="h-8 w-8 text-slate-400" />
+                          </div>
+                        )}
+                        <Badge className={statusColors[part.status]}>{part.status}</Badge>
+                      </div>
+
+                      <h3 className="font-semibold text-slate-900 mb-1">{part.name}</h3>
+                      <p className="text-sm text-slate-500 line-clamp-2 mb-2">{part.description}</p>
+                      
+                      <div className="flex items-center gap-2 text-sm text-slate-500 mb-3">
+                        <Badge variant="outline">{part.category}</Badge>
+                        <span className="font-semibold text-emerald-600">₹{part.price}</span>
+                      </div>
+
+                      <div className="text-xs text-slate-500 mb-4">
+                        <p>Seller: {part.seller_name || "Unknown"}</p>
+                        <p>Type: {part.seller_type}</p>
+                      </div>
+
+                      {part.status === "pending" && (
+                        <div className="flex gap-2 mt-auto">
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white"
+                            onClick={() => {
+                              setSelectedItem(part);
+                              setReviewAction("approve");
+                              setReviewDialog(true);
+                            }}
+                          >
+                            <CheckCircle2 className="h-4 w-4 mr-1" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                            onClick={() => {
+                              setSelectedItem(part);
+                              setReviewAction("reject");
+                              setReviewDialog(true);
+                            }}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                    </UnifiedCard>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Review Dialog */}
+      <Dialog open={reviewDialog} onOpenChange={setReviewDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {reviewAction === "view" ? "Application Details" :
+               reviewAction === "approve" ? "Approve Application" : "Reject Application"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedItem && (
+            <div className="space-y-4 mt-4">
+              {activeTab === "mentors" && (
+                <>
+                  <div className="flex items-center gap-4">
+                    <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-2xl font-bold">
+                      {selectedItem.applicant_name?.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg">{selectedItem.applicant_name}</h3>
+                      <p className="text-slate-500">{selectedItem.applicant_email}</p>
+                      <Badge className="mt-1">{selectedItem.applicant_type}</Badge>
+                    </div>
+                  </div>
+
+                  {selectedItem.bio && (
+                    <div>
+                      <Label className="text-slate-500">Bio</Label>
+                      <p className="text-slate-900 mt-1">{selectedItem.bio}</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedItem.company_name && (
+                      <div>
+                        <Label className="text-slate-500">Company</Label>
+                        <p className="font-medium">{selectedItem.company_name}</p>
+                      </div>
+                    )}
+                    {selectedItem.graduation_year && (
+                      <div>
+                        <Label className="text-slate-500">Graduation Year</Label>
+                        <p className="font-medium">{selectedItem.graduation_year}</p>
+                      </div>
+                    )}
+                    {selectedItem.hourly_rate && (
+                      <div>
+                        <Label className="text-slate-500">Hourly Rate</Label>
+                        <p className="font-medium">₹{selectedItem.hourly_rate}</p>
+                      </div>
+                    )}
+                    {selectedItem.linkedin_url && (
+                      <div>
+                        <Label className="text-slate-500">LinkedIn</Label>
+                        <a href={selectedItem.linkedin_url} target="_blank" rel="noopener noreferrer" 
+                           className="text-blue-600 hover:underline text-sm">View Profile</a>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedItem.expertise?.length > 0 && (
+                    <div>
+                      <Label className="text-slate-500">Expertise</Label>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {selectedItem.expertise.map((skill, i) => (
+                          <Badge key={i} variant="outline">{skill}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {reviewAction !== "view" && (
+                <div>
+                  <Label>Review Message (Optional)</Label>
+                  <Textarea
+                    value={reviewMessage}
+                    onChange={(e) => setReviewMessage(e.target.value)}
+                    placeholder={reviewAction === "approve" 
+                      ? "Welcome message or instructions..." 
+                      : "Reason for rejection..."}
+                    className="mt-1"
+                    rows={3}
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                {reviewAction === "view" ? (
+                  <Button onClick={() => setReviewDialog(false)} className="w-full">
+                    Close
+                  </Button>
+                ) : (
+                  <>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setReviewDialog(false)}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleReview}
+                      disabled={updateMentorMutation.isPending || updatePartMutation.isPending}
+                      className={`flex-1 ${
+                        reviewAction === "approve" 
+                          ? "bg-emerald-500 hover:bg-emerald-600" 
+                          : "bg-red-500 hover:bg-red-600"
+                      } text-white`}
+                    >
+                      {(updateMentorMutation.isPending || updatePartMutation.isPending) ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : reviewAction === "approve" ? (
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                      ) : (
+                        <XCircle className="h-4 w-4 mr-2" />
+                      )}
+                      {reviewAction === "approve" ? "Approve" : "Reject"}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

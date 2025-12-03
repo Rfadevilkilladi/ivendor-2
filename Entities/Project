@@ -1,0 +1,172 @@
+{
+  "name": "Project",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Project title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed project description"
+    },
+    "department": {
+      "type": "string",
+      "enum": [
+        "Mechanical",
+        "Civil",
+        "Electrical",
+        "Computer Science",
+        "Electronics"
+      ],
+      "description": "Department category"
+    },
+    "budget_range": {
+      "type": "string",
+      "enum": [
+        "under_5000",
+        "5000_15000",
+        "15000_30000",
+        "over_30000"
+      ],
+      "description": "Budget range in INR"
+    },
+    "time_range": {
+      "type": "string",
+      "enum": [
+        "1_2_weeks",
+        "2_4_weeks",
+        "4_8_weeks",
+        "over_8_weeks"
+      ],
+      "description": "Time duration"
+    },
+    "estimated_cost": {
+      "type": "number",
+      "description": "Estimated budget in INR"
+    },
+    "duration_weeks": {
+      "type": "number",
+      "description": "Estimated duration in weeks"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "Beginner",
+        "Intermediate",
+        "Advanced"
+      ],
+      "description": "Difficulty level"
+    },
+    "technologies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Technologies involved"
+    },
+    "components_needed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Required components/materials"
+    },
+    "learning_outcomes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What students will learn"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "idea",
+        "in_progress",
+        "review",
+        "completed"
+      ],
+      "default": "idea"
+    },
+    "progress": {
+      "type": "number",
+      "default": 0,
+      "description": "Progress percentage"
+    },
+    "mentor_id": {
+      "type": "string",
+      "description": "Assigned mentor ID"
+    },
+    "milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "refund_amount": {
+            "type": "number"
+          },
+          "proof_url": {
+            "type": "string"
+          },
+          "proof_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          }
+        }
+      }
+    },
+    "initial_fee_paid": {
+      "type": "number",
+      "default": 0
+    },
+    "refund_earned": {
+      "type": "number",
+      "default": 0
+    },
+    "refund_status": {
+      "type": "string",
+      "enum": [
+        "none",
+        "stage1_pending",
+        "stage2_pending",
+        "stage3_pending",
+        "approved",
+        "rejected"
+      ],
+      "default": "none"
+    },
+    "refund_proof_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_template": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is a template idea"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "alumni_contact": {
+      "type": "string",
+      "description": "Alumni who completed similar project"
+    }
+  },
+  "required": [
+    "title",
+    "department"
+  ]
+}
